@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>PlatformerJS</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────── -->
+<div id="header">
+  <div class="logo">Platformer<span>JS</span></div>
+  <div class="badge">v2.0</div>
+  <div class="hdr-right">Open-source game library · Canvas 2D</div>
+</div>
+
+<!-- ── Root layout ────────────────────────────────── -->
+<div id="root">
+
+  <!-- ── Left pane: toolbar + level strip + canvas ── -->
+  <div id="left">
+
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <span class="tlabel">Demo Scene</span>
+      <button class="btn primary" id="btnPlay">▶ Play</button>
+      <button class="btn"         id="btnPause">⏸ Pause</button>
+      <button class="btn danger"  id="btnReset">↺ Reset</button>
+      <button class="btn"         id="btnDebug">⬡ Debug</button>
+    </div>
+
+    <!-- Level selector strip (populated by JS from game.json) -->
+    <div id="levelStrip">
+      <span class="lvl-label">Loading…</span>
+    </div>
+
+    <!-- Canvas stage -->
+    <div id="stage">
+      <!-- Canvas: pixel buffer set ONCE in JS to GAME_W × GAME_H.
+           Scaled purely via CSS transform — buffer is never reset. -->
+      <canvas id="gameCanvas"></canvas>
+
+      <!-- Overlay: start screen / level complete / game over -->
+      <div id="overlay">
+        <h2>PlatformerJS</h2>
+        <p class="overlay-sub">Loading game data…</p>
+      </div>
+    </div>
+
+    <!-- Touch / mobile controls (hidden on desktop via CSS) -->
+    <div id="touch">
+      <div class="dpad">
+        <div class="dpad-btn" id="tc-left">◀</div>
+        <div class="dpad-btn" id="tc-up">▲</div>
+        <div class="dpad-btn" id="tc-right">▶</div>
+      </div>
+      <div class="jump-btn" id="tc-jump">⬆</div>
+    </div>
+
+  </div><!-- /#left -->
+
+  <!-- ── Right sidebar ──────────────────────────────── -->
+  <div id="sidebar">
+
+    <!-- Live stats -->
+    <div class="section">
+      <div class="sec-title">Live Stats</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Score</div>
+          <div class="stat-value" id="st-score">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Lives</div>
+          <div class="stat-value pink" id="st-lives">3</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Items</div>
+          <div class="stat-value blue" id="st-coins">0/0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">FPS</div>
+          <div class="stat-value" id="st-fps">--</div>
+        </div>
+        <div class="stat-box" style="grid-column:span 2">
+          <div class="stat-label">Level</div>
+          <div class="stat-value gold" id="st-level">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Level progress -->
+    <div class="section">
+      <div class="sec-title">Level Progress</div>
+      <div class="level-progress" id="levelProgress">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Scene entities -->
+    <div class="section">
+      <div class="sec-title">Scene Entities</div>
+      <div class="entity-list" id="entityList">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Library API -->
+    <div class="section">
+      <div class="sec-title">Library API</div>
+      <div class="code-block"><span class="cm">// Boot: fetch game.json first</span>
+<span class="fn">fetch</span>(<span class="str">'game.json'</span>)
+  .<span class="fn">then</span>(r =&gt; r.<span class="fn">json</span>())
+  .<span class="fn">then</span>(data =&gt; {
+    <span class="cm">// Config, rewards, enemies from JSON</span>
+    CFG = data.config;
+    REWARDS = data.rewards;
+
+    <span class="cm">// Create engine &amp; load level</span>
+    <span class="kw">const</span> game = <span class="kw">new</span> <span class="fn">PlatformerGame</span>();
+    game.<span class="fn">loadMap</span>(data.levels[<span class="str">0</span>].tilemap);
+
+    <span class="cm">// Add entities from level data</span>
+    game.<span class="fn">addEntity</span>(<span class="kw">new</span> <span class="fn">Player</span>({x:<span class="str">48</span>,y:<span class="str">230</span>}));
+    game.<span class="fn">addEntity</span>(<span class="kw">new</span> <span class="fn">Reward</span>(
+      {x:<span class="str">200</span>, y:<span class="str">160</span>},
+      REWARDS[<span class="str">'coin'</span>]
+    ));
+
+    game.<span class="fn">on</span>(<span class="str">'levelComplete'</span>, d =&gt; {});
+    game.<span class="fn">start</span>();
+  });</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="section">
+      <div class="sec-title">Controls</div>
+      <div class="keys">
+        <div class="key">← <span>Left</span></div>
+        <div class="key">→ <span>Right</span></div>
+        <div class="key">↑ <span>Jump</span></div>
+        <div class="key">Space <span>Jump</span></div>
+        <div class="key">P <span>Pause</span></div>
+        <div class="key">R <span>Reset</span></div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div class="section">
+      <div class="sec-title">Event Log</div>
+      <div id="log"></div>
+    </div>
+
+  </div><!-- /#sidebar -->
+
+</div><!-- /#root -->
+
+<!-- game.js loads last so DOM is ready -->
+<script src="js/game.js"></script>
+</body>
+</html>
