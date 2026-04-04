@@ -1,0 +1,270 @@
+{
+  "title": "Dad in action",
+  "config": {
+    "gameWidth": 800,
+    "gameHeight": 450,
+    "tileSize": 32,
+    "gravity": 960,
+    "maxFallSpeed": 600,
+    "startingLives": 3
+  },
+
+  "assets": {
+    "fonts": [
+      "https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap"
+    ],
+    "sprites": {
+      "player": {
+        "url": "character.png",
+        "frameWidth": 200,
+        "frameHeight": 272,
+        "displayWidth": 50,
+        "displayHeight": 68,
+        "frames": { "idle": 0, "run": [1,2,3,4], "jump": 5, "fall": 6 }
+      },
+      "enemy_patrol": {
+        "url": null,
+        "frameWidth": 28,
+        "frameHeight": 28
+      },
+      "coin": {
+        "url": "Heart.png",
+        "frameWidth": 400,
+        "frameHeight": 400,
+        "displayWidth": 50,
+        "displayHeight": 50
+      },
+      "star": {
+        "url": "Heart.png",
+        "frameWidth": 18,
+        "frameHeight": 18
+      },
+      "flag": {
+        "url": "palm1.png",
+        "frameWidth": 115,
+        "frameHeight": 160
+      }
+    },
+    "tilesets": {
+      "default": {
+        "url": "Platform2.png",
+        "tileSize": 32,
+        "tiles": { "0": "air", "1": "solid" }
+      }
+    }
+  },
+
+  "rewards": {
+    "coin": {
+      "type": "coin",
+      "label": "Gold Coin",
+      "points": 10,
+      "color": "#ffd700",
+      "glowColor": "rgba(255,215,0,0.25)",
+      "floatAmplitude": 4,
+      "floatSpeed": 3,
+      "particleColor": "#ffd700",
+      "particleCount": 10
+    },
+    "star": {
+      "type": "star",
+      "label": "Silver Star",
+      "points": 25,
+      "color": "#c0c0ff",
+      "glowColor": "rgba(192,192,255,0.25)",
+      "floatAmplitude": 5,
+      "floatSpeed": 2.5,
+      "particleColor": "#c0c0ff",
+      "particleCount": 14
+    },
+    "enemyStomp": {
+      "label": "Enemy Stomp",
+      "points": 25,
+      "particleColor": "#ff6eb4",
+      "particleCount": 10
+    },
+    "levelComplete": {
+      "label": "Level Complete Bonus",
+      "points": 100
+    },
+    "allCoins": {
+      "label": "All Items Bonus",
+      "points": 50
+    }
+  },
+
+  "enemies": {
+    "patrol": {
+      "type": "patrol",
+      "label": "Blob Patrol",
+      "width": 28,
+      "height": 28,
+      "defaultSpeed": 70,
+      "colorInner": "#ff6eb4",
+      "colorOuter": "#aa1155",
+      "stompable": true,
+      "damageToPlayer": 1
+    },
+    "fast_patrol": {
+      "type": "patrol",
+      "label": "Fast Blob",
+      "width": 28,
+      "height": 28,
+      "defaultSpeed": 110,
+      "colorInner": "#ff4444",
+      "colorOuter": "#881111",
+      "stompable": true,
+      "damageToPlayer": 1
+    }
+  },
+
+  "player": {
+    "width": 50,
+    "height": 68,
+    "speed": 185,
+    "jumpForce": -490,
+    "coyoteTime": 0.1,
+    "jumpBufferTime": 0.12,
+    "invincibleDuration": 2,
+    "trailFade": 1.5,
+    "frameRate": 8,
+    "colorBody1": "#7fff6e",
+    "colorBody2": "#3fc23a",
+    "colorVisor": "#0a2a3a",
+    "colorEye": "#00e5ff"
+  },
+
+  "levels": [
+    {
+      "id": 1,
+      "name": "Green Hills",
+      "subtitle": "Learn the ropes",
+      "skyTop": "#070714",
+      "skyBottom": "#0e0e2a",
+      "backgroundImage": "bg-level1.jpg",
+      "backgroundParallax": 0.4,
+      "tileColors": ["#2e3a6e", "#1a2448"],
+      "tilemap": [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ],
+      "playerStart": { "x": 48, "y": 230 },
+      "rewards": [
+        { "reward": "coin", "x": 130, "y": 195 },
+        { "reward": "coin", "x": 195, "y": 195 },
+        { "reward": "coin", "x": 260, "y": 195 },
+        { "reward": "coin", "x": 354, "y": 148 },
+        { "reward": "coin", "x": 420, "y": 148 },
+        { "reward": "coin", "x": 610, "y": 195 },
+        { "reward": "coin", "x": 675, "y": 195 },
+        { "reward": "coin", "x": 740, "y": 195 }
+      ],
+      "enemies": [
+        { "enemy": "patrol", "x": 320, "y": 256, "patrolLeft": 288, "patrolRight": 400 },
+        { "enemy": "patrol", "x": 672, "y": 210, "patrolLeft": 640, "patrolRight": 770, "speed": 90 }
+      ],
+      "flag": { "x": 890, "y": 353 }
+    },
+    {
+      "id": 2,
+      "name": "Crimson Caverns",
+      "subtitle": "Watch your step",
+      "skyTop": "#140508",
+      "skyBottom": "#2a0a12",
+      "backgroundImage": "bg-level2.jpg",
+      "backgroundParallax": 0.3,
+      "tileColors": ["#5a1a2e", "#3a0a1e"],
+      "tilemap": [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,1,0,0,1,1,1],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ],
+      "playerStart": { "x": 48, "y": 240 },
+      "rewards": [
+        { "reward": "coin", "x": 96,  "y": 240 },
+        { "reward": "star", "x": 288, "y": 112 },
+        { "reward": "coin", "x": 160, "y": 176 },
+        { "reward": "coin", "x": 288, "y": 240 },
+        { "reward": "coin", "x": 416, "y": 144 },
+        { "reward": "star", "x": 544, "y": 112 },
+        { "reward": "coin", "x": 608, "y": 208 },
+        { "reward": "coin", "x": 700, "y": 160 },
+        { "reward": "coin", "x": 760, "y": 240 }
+      ],
+      "enemies": [
+        { "enemy": "patrol",      "x": 160, "y": 256, "patrolLeft": 96,  "patrolRight": 256 },
+        { "enemy": "patrol",      "x": 416, "y": 180, "patrolLeft": 384, "patrolRight": 480 },
+        { "enemy": "fast_patrol", "x": 640, "y": 256, "patrolLeft": 576, "patrolRight": 736 }
+      ],
+      "flag": { "x": 830, "y": 222 }
+    },
+    {
+      "id": 3,
+      "name": "Sky Fortress",
+      "subtitle": "Don't look down",
+      "skyTop": "#04041a",
+      "skyBottom": "#0a0a40",
+      "backgroundImage": "bg-level3.jpg",
+      "backgroundParallax": 0.5,
+      "tileColors": ["#1a3a6e", "#0a1a4a"],
+      "tilemap": [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],
+        [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1],
+        [1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0],
+        [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ],
+      "playerStart": { "x": 48, "y": 240 },
+      "rewards": [
+        { "reward": "star", "x": 96,  "y": 176 },
+        { "reward": "coin", "x": 160, "y": 176 },
+        { "reward": "star", "x": 256, "y": 112 },
+        { "reward": "coin", "x": 352, "y": 112 },
+        { "reward": "coin", "x": 448, "y": 176 },
+        { "reward": "star", "x": 544, "y": 112 },
+        { "reward": "coin", "x": 640, "y": 144 },
+        { "reward": "coin", "x": 736, "y": 208 },
+        { "reward": "star", "x": 800, "y": 144 }
+      ],
+      "enemies": [
+        { "enemy": "patrol",      "x": 192, "y": 256, "patrolLeft": 96,  "patrolRight": 288,  "speed": 80  },
+        { "enemy": "fast_patrol", "x": 448, "y": 180, "patrolLeft": 352, "patrolRight": 576,  "speed": 110 },
+        { "enemy": "patrol",      "x": 640, "y": 256, "patrolLeft": 576, "patrolRight": 736,  "speed": 85  },
+        { "enemy": "fast_patrol", "x": 800, "y": 256, "patrolLeft": 736, "patrolRight": 864,  "speed": 120 }
+      ],
+      "flag": { "x": 866, "y": 222 }
+    }
+  ]
+}

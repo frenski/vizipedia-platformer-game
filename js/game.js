@@ -38,10 +38,12 @@ const TILESETS = {}; // key → { img, tileSize }
 function loadSprites(spriteDefs) {
   Object.entries(spriteDefs || {}).forEach(([key, def]) => {
     SPRITES[key] = {
-      img:         null,
-      frameWidth:  def.frameWidth  || null,
-      frameHeight: def.frameHeight || null,
-      frames:      def.frames      || {}
+      img:           null,
+      frameWidth:    def.frameWidth    || null,  // source column width in spritesheet
+      frameHeight:   def.frameHeight   || null,  // source row height in spritesheet
+      displayWidth:  def.displayWidth  || null,  // drawn pixel width  (falls back to frameWidth)
+      displayHeight: def.displayHeight || null,  // drawn pixel height (falls back to frameHeight)
+      frames:        def.frames        || {}
     };
     if (!def.url) {
       console.log(`[sprites] "${key}" → procedural (no url)`);
@@ -67,48 +69,56 @@ function loadTilesets(tilesetDefs) {
   });
 }
 
-/* Helper: draw one frame from a horizontal spritesheet.
-   - Preserves the frame's natural aspect ratio (never squashes).
-   - Scales the frame so its longest side fits within dw × dh.
-   - Centers the result on the entity's (dx, dy, dw, dh) bounding box.
-   - flipX mirrors horizontally (for left-facing entities).
-   Returns true if drawn, false if the image is not loaded yet. */
+/* Draw a sprite image scaled to exactly frameWidth × frameHeight.
+   - If NO frames are defined in JSON: source = full image, scaled to destW × destH.
+   - If frames ARE defined (named states or animate array): frameWidth slices columns
+     from the spritesheet and the correct column is drawn at destW × destH.
+   - flipX mirrors horizontally. Returns true if drawn, false if not loaded. */
 function drawSprite(ctx, key, state, frameIdx, dx, dy, dw, dh, flipX) {
   const sp = SPRITES[key];
   if (!sp || !sp.img) return false;
 
-  /* Natural frame size — fall back to full image if not specified */
-  const fw = sp.frameWidth  || sp.img.width;
-  const fh = sp.frameHeight || sp.img.height;
+  const imgW = sp.img.width;
+  const imgH = sp.img.height;
 
-  /* How many frames does this sheet actually contain? */
-  const totalFrames = Math.max(1, Math.floor(sp.img.width / fw));
+  /* Destination size — displayWidth/Height if set, otherwise frameWidth/Height, otherwise full image */
+  const destW = sp.displayWidth  || sp.frameWidth  || imgW;
+  const destH = sp.displayHeight || sp.frameHeight || imgH;
 
-  /* Resolve column, then clamp so we never read outside the image */
-  let col = 0;
-  if (frameIdx != null) {
-    col = frameIdx;
-  } else if (state != null) {
-    const f = sp.frames[state];
-    if (Array.isArray(f))  col = f[0];
-    else if (f != null)    col = f;
+  /* Decide source rect.
+     A spritesheet is indicated by ANY frames definition in the JSON.
+     A plain single image has no frames defined at all.                */
+  const isSheet = sp.frames && Object.keys(sp.frames).length > 0;
+
+  let srcX = 0;
+  let srcW = imgW; // default: full image
+  const srcH = imgH;
+
+  if (isSheet && sp.frameWidth) {
+    /* Each column in the sheet is sp.frameWidth pixels wide.
+       Resolve which column: frameIdx takes priority, then named state. */
+    const colW        = sp.frameWidth;
+    const totalFrames = Math.max(1, Math.floor(imgW / colW));
+    let col = 0;
+
+    if (frameIdx != null) {
+      col = frameIdx;
+    } else if (state != null && sp.frames[state] != null) {
+      const f = sp.frames[state];
+      col = Array.isArray(f) ? f[0] : f;
+    }
+    col  = col % totalFrames;
+    srcX = col * colW;
+    srcW = colW;
   }
-  col = col % totalFrames; // clamp: wraps multi-frame; keeps single-frame at 0
-  const srcX = col * fw;
-
-  /* Draw at natural frame size, centered on the entity's bounding box */
-  const drawW = fw;
-  const drawH = fh;
-  const destX = dx + (dw - drawW) / 2;
-  const destY = dy + (dh - drawH) / 2;
 
   ctx.save();
   if (flipX) {
-    ctx.translate(destX + drawW, destY);
+    ctx.translate(dx + destW, dy);
     ctx.scale(-1, 1);
-    ctx.drawImage(sp.img, srcX, 0, fw, fh, 0, 0, drawW, drawH);
+    ctx.drawImage(sp.img, srcX, 0, srcW, srcH, 0, 0, destW, destH);
   } else {
-    ctx.drawImage(sp.img, srcX, 0, fw, fh, destX, destY, drawW, drawH);
+    ctx.drawImage(sp.img, srcX, 0, srcW, srcH, dx, dy, destW, destH);
   }
   ctx.restore();
   return true;
@@ -261,15 +271,23 @@ function moveY(e, map) {
 /* ── Player ── */
 class Player extends Entity {
   constructor(o) {
-    const pd = PLAYER_DEF;
-    super(Object.assign({ type: 'player', w: pd.width || 26, h: pd.height || 34 }, o));
+    const pd  = PLAYER_DEF;
+    const sp  = SPRITES['player'];
+    /* Hitbox: use player.width/height from JSON if set, otherwise sprite displayWidth/Height,
+       otherwise the built-in defaults. This keeps physics aligned with the visual. */
+    const hw  = pd.width  || (sp && sp.displayWidth)  || 26;
+    const hh  = pd.height || (sp && sp.displayHeight) || 34;
+    super(Object.assign({ type: 'player', w: hw, h: hh }, o));
     this.speed     = pd.speed          || 185;
     this.jumpForce = pd.jumpForce      || -490;
     this.gravity   = CFG.gravity       || 960;
     this.coyoteMax = pd.coyoteTime     || 0.1;
     this.jbufMax   = pd.jumpBufferTime || 0.12;
     this.facing = 1; this.coyote = 0; this.jbuf = 0;
-    this.frame = 0; this.ftimer = 0; this.invincible = 0;
+    this.invincible = 0;
+    this.ftimer = 0;
+    this.frame  = 0;         // current run frame index within the run array
+    this.animState = 'idle'; // track last state to reset frame on state change
     this.trail = [];
     this.c1 = pd.colorBody1 || '#7fff6e';
     this.c2 = pd.colorBody2 || '#3fc23a';
@@ -287,18 +305,42 @@ class Player extends Entity {
       this.vy = this.jumpForce; this.jbuf = -1; this.coyote = -1; this.onGround = false;
       g.emit('jump');
     }
-    this.vy = Math.min(this.vy + this.gravity * dt, CFG.maxFallSpeed || 600);
     this.x += this.vx * dt; moveX(this, g.map);
     this.y += this.vy * dt;
     const wasG = this.onGround; this.onGround = false;
     moveY(this, g.map);
+    this.vy = Math.min(this.vy + this.gravity * dt, CFG.maxFallSpeed || 600);
     if (this.onGround && !wasG) g.emit('land');
     if (this.onGround) this.coyote = this.coyoteMax;
     this.x = Math.max(0, Math.min(this.x, g.map.width - this.w));
     if (this.y > g.map.height + 100) g.emit('playerDied');
-    this.ftimer += dt;
-    if (this.ftimer > 0.1) { this.ftimer = 0; this.frame = (this.frame + 1) % 4; }
     if (this.invincible > 0) this.invincible -= dt;
+
+    // Use a stable grounded flag — true as long as the player has been
+    // on the ground within the coyote window, so it never flickers false
+    // for a single frame due to the physics reset cycle.
+    const isGrounded = this.coyote > 0;
+    const isMoving   = k.left || k.right;
+    const nowState   = !isGrounded
+                     ? (this.vy < 0 ? 'jump' : 'fall')
+                     : isMoving ? 'run' : 'idle';
+
+    // Reset frame index when state changes
+    if (nowState !== this.animState) { this.frame = 0; this.ftimer = 0; }
+    this.animState = nowState;
+
+    // Only advance frame counter while running
+    if (nowState === 'run') {
+      const sp       = SPRITES['player'];
+      const runFrames = sp && Array.isArray(sp.frames && sp.frames['run']) ? sp.frames['run'] : null;
+      const fps       = (PLAYER_DEF.frameRate) || 8;          // frames per second, set in JSON
+      this.ftimer += dt;
+      if (this.ftimer >= 1 / fps) {
+        this.ftimer = 0;
+        const len = runFrames ? runFrames.length : 4;
+        this.frame = (this.frame + 1) % len;
+      }
+    }
     this.trail.push({ x: this.x + this.w / 2, y: this.y + this.h / 2, a: 0.25 });
     this.trail = this.trail.map(p => ({ ...p, a: p.a - dt * (PLAYER_DEF.trailFade || 1.5) })).filter(p => p.a > 0);
   }
@@ -312,28 +354,24 @@ class Player extends Entity {
     }
     if (this.invincible > 0 && Math.floor(this.invincible * 10) % 2 === 0) return;
 
-    // Resolve animation state name + frame index for spritesheet cycling
-    let state = 'idle';
-    let frameIdx = null;
-    const sp = SPRITES['player'];
-    if (sp) {
-      if (!this.onGround && this.vy < 0) {
-        state = 'jump'; frameIdx = sp.frames['jump'] ?? 0;
-      } else if (!this.onGround && this.vy >= 0) {
-        state = 'fall'; frameIdx = sp.frames['fall'] ?? 0;
-      } else if (this.vx !== 0) {
-        const runFrames = sp.frames['run'];
-        state = 'run';
-        frameIdx = Array.isArray(runFrames)
-          ? runFrames[this.frame % runFrames.length]
-          : (runFrames ?? 0);
-      } else {
-        state = 'idle'; frameIdx = sp.frames['idle'] ?? 0;
+    // Use the state already resolved in update() — no re-computation needed
+    const state = this.animState || 'idle';
+    const sp    = SPRITES['player'];
+    let frameIdx = 0;
+    if (sp && sp.frames) {
+      const f = sp.frames[state];
+      if (state === 'run' && Array.isArray(f)) {
+        // Cycle through the run frames using this.frame (advanced by update)
+        frameIdx = f[this.frame % f.length];
+      } else if (Array.isArray(f)) {
+        frameIdx = f[0];       // multi-frame non-run state: always first frame
+      } else if (f != null) {
+        frameIdx = f;          // single frame index
       }
     }
 
     // Try sprite first; fall through to procedural if not loaded
-    if (drawSprite(ctx, 'player', state, frameIdx, sx, sy, this.w, this.h, this.facing === -1)) return;
+    if (drawSprite(ctx, 'player', state, frameIdx, sx, sy, 0, 0, this.facing === -1)) return;
 
     // Procedural fallback
     const cx = sx + this.w / 2, cy = sy + this.h / 2;
@@ -376,13 +414,17 @@ class Reward extends Entity {
     gr.addColorStop(0, this.def.glowColor || 'rgba(255,215,0,0.25)');
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill();
-    // Animate through however many frames the sheet contains (1 = static)
+    // Only animate if the JSON explicitly defines a frames array for this reward.
+    // Without a frames declaration, always show frame 0 (static image).
     const sp = SPRITES[this.rewardKey];
-    const totalFrames = (sp && sp.img && sp.frameWidth)
-      ? Math.max(1, Math.floor(sp.img.width / sp.frameWidth))
-      : 1;
-    const frameIdx = Math.floor(this.angle / (Math.PI * 2 / totalFrames)) % totalFrames;
-    if (drawSprite(ctx, this.rewardKey, null, frameIdx, sx, sy, this.w, this.h, false)) return;
+    const frameList = sp && Array.isArray(sp.frames && sp.frames['animate'])
+      ? sp.frames['animate']
+      : null;
+    let frameIdx = 0;
+    if (frameList && frameList.length > 1) {
+      frameIdx = frameList[Math.floor(this.angle / (Math.PI * 2 / frameList.length)) % frameList.length];
+    }
+    if (drawSprite(ctx, this.rewardKey, null, frameIdx, sx, sy, 0, 0, false)) return;
     // Procedural fallback
     if (this.rewardKey === 'star') {
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(this.angle * 0.5);
@@ -431,7 +473,8 @@ class Enemy extends Entity {
   }
   draw(ctx, cam) {
     const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
-    if (drawSprite(ctx, this.spriteKey, null, 0, sx, sy, this.w, this.h, this.dir === -1)) return;
+    const esp = SPRITES[this.spriteKey];
+    if (drawSprite(ctx, this.spriteKey, null, 0, sx, sy, 0, 0, this.dir === -1)) return;
     // Procedural fallback
     const cx = sx + 14, cy = sy + 14;
     ctx.save(); ctx.translate(cx, cy); ctx.scale(this.dir, 1);
@@ -452,7 +495,8 @@ class Flag extends Entity {
   update(dt) { this.wave += dt * 2; }
   draw(ctx, cam) {
     const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
-    if (drawSprite(ctx, 'flag', null, 0, sx, sy, this.w, this.h, false)) return;
+    const fsp = SPRITES['flag'];
+    if (drawSprite(ctx, 'flag', null, 0, sx, sy, 0, 0, false)) return;
     // Procedural fallback
     ctx.fillStyle = '#aaa'; ctx.fillRect(sx + 2, sy, 4, this.h);
     ctx.beginPath(); ctx.moveTo(sx + 6, sy + 4);
@@ -566,7 +610,8 @@ class PlatformerGame extends Emitter {
       }
 
       if (e.type === 'enemy' && p.invincible <= 0) {
-        if (p.vy > 0 && (p.y + p.h) - e.y < 14) {
+        const stomping = p.vy > 80 && (p.y + p.h) < (e.y + e.h * 0.5);
+        if (stomping) {
           e.alive = false; p.vy = -300;
           const pts = (REWARDS.enemyStomp && REWARDS.enemyStomp.points) || 25;
           this.score += pts;
