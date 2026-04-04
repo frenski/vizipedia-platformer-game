@@ -1,39 +1,128 @@
 /* ═══════════════════════════════════════════════════════════════
    PlatformerJS — game.js
-   All game logic. Loaded after game.json is fetched.
+   Game data:  data/${id}/game.json
+   All assets: assets/${id}/
    ═══════════════════════════════════════════════════════════════ */
 'use strict';
 
+/* ── Resolve game ID from URL hash: index.html#id=abc ── */
 const getLocHash = function () {
-
-    if (location.hash.length < 2) return {};
-    var hash = {};
-    var hashParts = location.hash.substr(1).split("&");
-    for (var i = 0; i < hashParts.length; i++) {
-        var kv = hashParts[i];
-        if (kv.match(/^(.+?)=(\d+)$/))
-            hash[RegExp.$1] = parseInt(RegExp.$2);
-        else if (kv.match(/^(.+?)=(\d+\.\d+)$/))
-            hash[RegExp.$1] = parseFloat(RegExp.$2);
-        else if (kv.match(/^(.+?)=(.*)$/))
-            hash[RegExp.$1] = decodeURIComponent(RegExp.$2);
-        else
-            hash[RegExp.$1] = RegExp.$2;
-    }
-
-    return hash;
+  if (location.hash.length < 2) return {};
+  var hash = {};
+  var hashParts = location.hash.substr(1).split('&');
+  for (var i = 0; i < hashParts.length; i++) {
+    var kv = hashParts[i];
+    if      (kv.match(/^(.+?)=(\d+)$/))       hash[RegExp.$1] = parseInt(RegExp.$2);
+    else if (kv.match(/^(.+?)=(\d+\.\d+)$/))  hash[RegExp.$1] = parseFloat(RegExp.$2);
+    else if (kv.match(/^(.+?)=(.*)$/))         hash[RegExp.$1] = decodeURIComponent(RegExp.$2);
+    else                                        hash[RegExp.$1] = RegExp.$2;
+  }
+  return hash;
 };
 
-const locHash = getLocHash()
-const gameId = (typeof GAME_ID !== 'undefined') ? GAME_ID : locHash.id;
+const locHash = getLocHash();
+const gameId    = (typeof GAME_ID !== 'undefined') ? GAME_ID : locHash.id;
+const ASSET_BASE = `assets/${gameId}/`; // all images, audio etc. live here
 
-/* ── Config (filled from JSON) ── */
-let CFG        = {};   // config block
-let REWARDS    = {};   // rewards definitions
-let ENEMY_DEFS = {};   // enemy definitions
-let PLAYER_DEF = {};   // player definition
-let LEVELS     = [];   // level array
+/* ── Sprite cache ────────────────────────────────────────────────────────────
+   SPRITES[key] = { img, frameWidth, frameHeight, frames }
+   img is null until loaded; entities must guard against that.
+   frames (optional) maps state names to frame indices, e.g.
+     { "idle": 0, "run": [1,2,3,4], "jump": 5, "fall": 6 }
+   A spritesheet is laid out as a single horizontal strip:
+     frame 0 starts at x=0, frame N starts at x = N * frameWidth.
+   ─────────────────────────────────────────────────────────────────────────── */
+const SPRITES  = {};
+const TILESETS = {}; // key → { img, tileSize }
 
+function loadSprites(spriteDefs) {
+  Object.entries(spriteDefs || {}).forEach(([key, def]) => {
+    SPRITES[key] = {
+      img:         null,
+      frameWidth:  def.frameWidth  || null,
+      frameHeight: def.frameHeight || null,
+      frames:      def.frames      || {}
+    };
+    if (!def.url) {
+      console.log(`[sprites] "${key}" → procedural (no url)`);
+      return;
+    }
+    const fullUrl = ASSET_BASE + def.url;
+    console.log(`[sprites] "${key}" → loading ${fullUrl}`);
+    const img = new Image();
+    img.onload  = () => { SPRITES[key].img = img; console.log(`[sprites] "${key}" loaded ✓ (${img.width}×${img.height})`); };
+    img.onerror = () => { console.error(`[sprites] "${key}" FAILED to load: ${fullUrl}`); };
+    img.src = fullUrl;
+  });
+}
+
+function loadTilesets(tilesetDefs) {
+  Object.entries(tilesetDefs || {}).forEach(([key, def]) => {
+    TILESETS[key] = { img: null, tileSize: def.tileSize || 32 };
+    if (!def.url) return;
+    const img = new Image();
+    img.onload  = () => { TILESETS[key].img = img; };
+    img.onerror = () => { console.warn(`Tileset "${key}" failed to load:`, def.url); };
+    img.src = ASSET_BASE + def.url;
+  });
+}
+
+/* Helper: draw one frame from a horizontal spritesheet.
+   - Preserves the frame's natural aspect ratio (never squashes).
+   - Scales the frame so its longest side fits within dw × dh.
+   - Centers the result on the entity's (dx, dy, dw, dh) bounding box.
+   - flipX mirrors horizontally (for left-facing entities).
+   Returns true if drawn, false if the image is not loaded yet. */
+function drawSprite(ctx, key, state, frameIdx, dx, dy, dw, dh, flipX) {
+  const sp = SPRITES[key];
+  if (!sp || !sp.img) return false;
+
+  /* Natural frame size — fall back to full image if not specified */
+  const fw = sp.frameWidth  || sp.img.width;
+  const fh = sp.frameHeight || sp.img.height;
+
+  /* How many frames does this sheet actually contain? */
+  const totalFrames = Math.max(1, Math.floor(sp.img.width / fw));
+
+  /* Resolve column, then clamp so we never read outside the image */
+  let col = 0;
+  if (frameIdx != null) {
+    col = frameIdx;
+  } else if (state != null) {
+    const f = sp.frames[state];
+    if (Array.isArray(f))  col = f[0];
+    else if (f != null)    col = f;
+  }
+  col = col % totalFrames; // clamp: wraps multi-frame; keeps single-frame at 0
+  const srcX = col * fw;
+
+  /* Draw at natural frame size, centered on the entity's bounding box */
+  const drawW = fw;
+  const drawH = fh;
+  const destX = dx + (dw - drawW) / 2;
+  const destY = dy + (dh - drawH) / 2;
+
+  ctx.save();
+  if (flipX) {
+    ctx.translate(destX + drawW, destY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sp.img, srcX, 0, fw, fh, 0, 0, drawW, drawH);
+  } else {
+    ctx.drawImage(sp.img, srcX, 0, fw, fh, destX, destY, drawW, drawH);
+  }
+  ctx.restore();
+  return true;
+}
+
+/* ── Config globals (populated from JSON) ── */
+let CFG        = {};
+let REWARDS    = {};
+let ENEMY_DEFS = {};
+let PLAYER_DEF = {};
+let LEVELS     = [];
+let GAME_TITLE = 'PlatformerJS';
+
+/* ── Fixed internal resolution ── */
 const GAME_W = 800;
 const GAME_H = 450;
 
@@ -43,12 +132,13 @@ const overlay = document.getElementById('overlay');
 const stage   = document.getElementById('stage');
 const ctx     = canvas.getContext('2d');
 
-/* ── Canvas init: set ONCE, never change ── */
+/* ── Canvas: set ONCE — pixel buffer never changes ── */
 canvas.width  = GAME_W;
 canvas.height = GAME_H;
 overlay.style.width  = GAME_W + 'px';
 overlay.style.height = GAME_H + 'px';
 
+/* Scale canvas + overlay to fill stage via CSS transform only */
 function scaleToStage() {
   const sw = stage.clientWidth, sh = stage.clientHeight;
   const scale = Math.min(sw / GAME_W, sh / GAME_H);
@@ -62,17 +152,15 @@ scaleToStage();
 new ResizeObserver(scaleToStage).observe(stage);
 
 /* ═══════════════════════════════════════════════════
-   LIBRARY CLASSES
+   ENGINE CLASSES
    ═══════════════════════════════════════════════════ */
 
-/* ── Emitter ── */
 class Emitter {
   constructor() { this._h = {}; }
-  on(e, fn) { (this._h[e] = this._h[e] || []).push(fn); return this; }
+  on(e, fn)  { (this._h[e] = this._h[e] || []).push(fn); return this; }
   emit(e, d) { (this._h[e] || []).forEach(fn => fn(d)); }
 }
 
-/* ── Camera ── */
 class Camera {
   constructor() { this.x = 0; this.y = 0; }
   follow(tx, ty, mw, mh) {
@@ -84,14 +172,16 @@ class Camera {
   reset() { this.x = 0; this.y = 0; }
 }
 
-/* ── TileMap ── */
 class TileMap {
-  constructor(data, ts, colors) {
+  /* tilesetKey: key into TILESETS (e.g. "default") — optional, falls back to procedural */
+  constructor(data, ts, colors, tilesetKey) {
     this.data = data; this.ts = ts || 32;
     this.rows = data.length; this.cols = data[0].length;
-    this.width = this.cols * this.ts; this.height = this.rows * this.ts;
-    this.color1 = (colors && colors[0]) || '#2e3a6e';
-    this.color2 = (colors && colors[1]) || '#1a2448';
+    this.width  = this.cols * this.ts;
+    this.height = this.rows * this.ts;
+    this.color1     = (colors && colors[0]) || '#2e3a6e';
+    this.color2     = (colors && colors[1]) || '#1a2448';
+    this.tilesetKey = tilesetKey || 'default';
   }
   get(c, r) {
     return (r >= 0 && r < this.rows && c >= 0 && c < this.cols) ? this.data[r][c] : 1;
@@ -104,31 +194,48 @@ class TileMap {
     return out;
   }
   draw(ctx, cam) {
-    const ts = this.ts;
+    const ts  = this.ts;
+    const tsd = TILESETS[this.tilesetKey];
+    const img = tsd && tsd.img;           // null until loaded, or if no URL set
+    /* Source tile size in the sheet may differ from the world tile size.
+       We read it from the tileset def; fall back to world ts if not set. */
+    const srcTs = (tsd && tsd.tileSize) || ts;
+
     const c0 = Math.max(0, Math.floor(cam.x / ts));
     const c1 = Math.min(this.cols - 1, Math.ceil((cam.x + GAME_W) / ts));
     const r0 = Math.max(0, Math.floor(cam.y / ts));
     const r1 = Math.min(this.rows - 1, Math.ceil((cam.y + GAME_H) / ts));
+
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        if (!this.get(c, r)) continue;
-        const wx = Math.round(c * ts - cam.x), wy = Math.round(r * ts - cam.y);
-        const g = ctx.createLinearGradient(wx, wy, wx, wy + ts);
-        g.addColorStop(0, this.color1); g.addColorStop(1, this.color2);
-        ctx.fillStyle = g; ctx.fillRect(wx, wy, ts, ts);
-        ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(wx, wy, ts, 2);
-        ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(wx, wy + ts - 2, ts, 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.strokeRect(wx + .5, wy + .5, ts - 1, ts - 1);
+        const tileId = this.get(c, r);
+        if (!tileId) continue;
+        const wx = Math.round(c * ts - cam.x);
+        const wy = Math.round(r * ts - cam.y);
+
+        if (img) {
+          /* Tileset image: tile ID selects the column in a horizontal strip.
+             tileId 1 → column 0 (first tile), tileId 2 → column 1, etc.   */
+          const col = tileId - 1;
+          ctx.drawImage(img, col * srcTs, 0, srcTs, srcTs, wx, wy, ts, ts);
+        } else {
+          /* Procedural fallback */
+          const g = ctx.createLinearGradient(wx, wy, wx, wy + ts);
+          g.addColorStop(0, this.color1); g.addColorStop(1, this.color2);
+          ctx.fillStyle = g; ctx.fillRect(wx, wy, ts, ts);
+          ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(wx, wy, ts, 2);
+          ctx.fillStyle = 'rgba(0,0,0,0.15)';       ctx.fillRect(wx, wy + ts - 2, ts, 2);
+          ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.strokeRect(wx + .5, wy + .5, ts - 1, ts - 1);
+        }
       }
     }
   }
 }
 
-/* ── Entity base ── */
 class Entity {
   constructor(o) {
     o = o || {};
-    this.id = Math.random().toString(36).slice(2);
+    this.id   = Math.random().toString(36).slice(2);
     this.type = o.type || 'entity';
     this.x = o.x || 0; this.y = o.y || 0;
     this.w = o.w || 32; this.h = o.h || 32;
@@ -138,17 +245,16 @@ class Entity {
   update() {} draw() {}
 }
 
-/* ── Physics helpers ── */
 function moveX(e, map) {
   for (const t of map.solidsFor(e.x, e.y, e.w, e.h)) {
-    if (e.vx > 0 && e.x + e.w > t.x && e.x < t.x) { e.x = t.x - e.w; e.vx = 0; }
+    if      (e.vx > 0 && e.x + e.w > t.x        && e.x < t.x)             { e.x = t.x - e.w;   e.vx = 0; }
     else if (e.vx < 0 && e.x < t.x + t.w && e.x + e.w > t.x + t.w) { e.x = t.x + t.w; e.vx = 0; }
   }
 }
 function moveY(e, map) {
   for (const t of map.solidsFor(e.x, e.y, e.w, e.h)) {
-    if (e.vy >= 0 && e.y + e.h > t.y && e.y < t.y) { e.y = t.y - e.h; e.vy = 0; e.onGround = true; }
-    else if (e.vy < 0 && e.y < t.y + t.h && e.y + e.h > t.y + t.h) { e.y = t.y + t.h; e.vy = 0; }
+    if      (e.vy >= 0 && e.y + e.h > t.y && e.y < t.y)             { e.y = t.y - e.h;   e.vy = 0; e.onGround = true; }
+    else if (e.vy <  0 && e.y < t.y + t.h && e.y + e.h > t.y + t.h) { e.y = t.y + t.h; e.vy = 0; }
   }
 }
 
@@ -157,12 +263,11 @@ class Player extends Entity {
   constructor(o) {
     const pd = PLAYER_DEF;
     super(Object.assign({ type: 'player', w: pd.width || 26, h: pd.height || 34 }, o));
-    this.speed      = pd.speed      || 185;
-    this.jumpForce  = pd.jumpForce  || -490;
-    this.gravity    = CFG.gravity   || 960;
-    this.coyoteMax  = pd.coyoteTime      || 0.1;
-    this.jbufMax    = pd.jumpBufferTime  || 0.12;
-    this.invMax     = pd.invincibleDuration || 2;
+    this.speed     = pd.speed          || 185;
+    this.jumpForce = pd.jumpForce      || -490;
+    this.gravity   = CFG.gravity       || 960;
+    this.coyoteMax = pd.coyoteTime     || 0.1;
+    this.jbufMax   = pd.jumpBufferTime || 0.12;
     this.facing = 1; this.coyote = 0; this.jbuf = 0;
     this.frame = 0; this.ftimer = 0; this.invincible = 0;
     this.trail = [];
@@ -180,7 +285,7 @@ class Player extends Entity {
     if (k.right) this.facing =  1;
     if (this.jbuf > 0 && (this.onGround || this.coyote > 0)) {
       this.vy = this.jumpForce; this.jbuf = -1; this.coyote = -1; this.onGround = false;
-      g.emit('jump'); addLog('↑ Jump', 'good');
+      g.emit('jump');
     }
     this.vy = Math.min(this.vy + this.gravity * dt, CFG.maxFallSpeed || 600);
     this.x += this.vx * dt; moveX(this, g.map);
@@ -191,19 +296,46 @@ class Player extends Entity {
     if (this.onGround) this.coyote = this.coyoteMax;
     this.x = Math.max(0, Math.min(this.x, g.map.width - this.w));
     if (this.y > g.map.height + 100) g.emit('playerDied');
-    this.ftimer += dt; if (this.ftimer > 0.1) { this.ftimer = 0; this.frame = (this.frame + 1) % 4; }
+    this.ftimer += dt;
+    if (this.ftimer > 0.1) { this.ftimer = 0; this.frame = (this.frame + 1) % 4; }
     if (this.invincible > 0) this.invincible -= dt;
     this.trail.push({ x: this.x + this.w / 2, y: this.y + this.h / 2, a: 0.25 });
     this.trail = this.trail.map(p => ({ ...p, a: p.a - dt * (PLAYER_DEF.trailFade || 1.5) })).filter(p => p.a > 0);
   }
-  draw(ctx, cam, dbg) {
+  draw(ctx, cam) {
     const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
+    // Trail — always drawn regardless of sprite
     for (const p of this.trail) {
       ctx.beginPath();
       ctx.arc(Math.round(p.x - cam.x), Math.round(p.y - cam.y), 5 * (p.a / 0.25), 0, Math.PI * 2);
       ctx.fillStyle = `rgba(127,255,110,${p.a * 0.4})`; ctx.fill();
     }
     if (this.invincible > 0 && Math.floor(this.invincible * 10) % 2 === 0) return;
+
+    // Resolve animation state name + frame index for spritesheet cycling
+    let state = 'idle';
+    let frameIdx = null;
+    const sp = SPRITES['player'];
+    if (sp) {
+      if (!this.onGround && this.vy < 0) {
+        state = 'jump'; frameIdx = sp.frames['jump'] ?? 0;
+      } else if (!this.onGround && this.vy >= 0) {
+        state = 'fall'; frameIdx = sp.frames['fall'] ?? 0;
+      } else if (this.vx !== 0) {
+        const runFrames = sp.frames['run'];
+        state = 'run';
+        frameIdx = Array.isArray(runFrames)
+          ? runFrames[this.frame % runFrames.length]
+          : (runFrames ?? 0);
+      } else {
+        state = 'idle'; frameIdx = sp.frames['idle'] ?? 0;
+      }
+    }
+
+    // Try sprite first; fall through to procedural if not loaded
+    if (drawSprite(ctx, 'player', state, frameIdx, sx, sy, this.w, this.h, this.facing === -1)) return;
+
+    // Procedural fallback
     const cx = sx + this.w / 2, cy = sy + this.h / 2;
     ctx.save(); ctx.translate(cx, cy); ctx.scale(this.facing, 1);
     ctx.beginPath(); ctx.ellipse(0, 19, 9, 3, 0, 0, Math.PI * 2);
@@ -217,19 +349,18 @@ class Player extends Entity {
     ctx.fillStyle = this.c2;
     ctx.fillRect(-9, 11, 6, 6 + lo); ctx.fillRect(3, 11, 6, 6 - lo);
     ctx.restore();
-    if (dbg) { ctx.strokeStyle = 'rgba(127,255,110,0.6)'; ctx.strokeRect(sx, sy, this.w, this.h); }
   }
 }
 
-/* ── Reward (Coin / Star / etc) ── */
+/* ── Reward (coin / star / etc.) ── */
 class Reward extends Entity {
   constructor(o, def) {
     super(Object.assign({ type: 'reward', w: 18, h: 18 }, o));
-    this.def = def;
+    this.def       = def;
     this.rewardKey = o.reward;
-    this.points = def.points || 10;
-    this.angle  = Math.random() * Math.PI * 2;
-    this.baseY  = this.y;
+    this.points    = def.points || 10;
+    this.angle     = Math.random() * Math.PI * 2;
+    this.baseY     = this.y;
     this.collected = false;
   }
   update(dt) {
@@ -238,16 +369,23 @@ class Reward extends Entity {
   }
   draw(ctx, cam) {
     if (this.collected) return;
-    const sx = Math.round(this.x - cam.x) + 9, sy = Math.round(this.y - cam.y) + 9;
-    // glow
-    const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, 13);
+    const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
+    const cx = sx + 9, cy = sy + 9;
+    // Glow ring — drawn regardless of sprite or procedural
+    const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 13);
     gr.addColorStop(0, this.def.glowColor || 'rgba(255,215,0,0.25)');
     gr.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(sx, sy, 13, 0, Math.PI * 2); ctx.fill();
-
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill();
+    // Animate through however many frames the sheet contains (1 = static)
+    const sp = SPRITES[this.rewardKey];
+    const totalFrames = (sp && sp.img && sp.frameWidth)
+      ? Math.max(1, Math.floor(sp.img.width / sp.frameWidth))
+      : 1;
+    const frameIdx = Math.floor(this.angle / (Math.PI * 2 / totalFrames)) % totalFrames;
+    if (drawSprite(ctx, this.rewardKey, null, frameIdx, sx, sy, this.w, this.h, false)) return;
+    // Procedural fallback
     if (this.rewardKey === 'star') {
-      // Draw star shape
-      ctx.save(); ctx.translate(sx, sy); ctx.rotate(this.angle * 0.5);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(this.angle * 0.5);
       ctx.fillStyle = this.def.color || '#c0c0ff';
       ctx.beginPath();
       for (let i = 0; i < 5; i++) {
@@ -259,8 +397,7 @@ class Reward extends Entity {
       ctx.closePath(); ctx.fill();
       ctx.restore();
     } else {
-      // Default: spinning coin
-      ctx.save(); ctx.translate(sx, sy); ctx.scale(Math.abs(Math.cos(this.angle)), 1);
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(Math.abs(Math.cos(this.angle)), 1);
       const cg = ctx.createLinearGradient(-9, -9, 9, 9);
       cg.addColorStop(0, '#ffe566'); cg.addColorStop(0.5, '#ffd700'); cg.addColorStop(1, '#b8860b');
       ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
@@ -275,30 +412,34 @@ class Enemy extends Entity {
   constructor(o, def) {
     def = def || ENEMY_DEFS['patrol'] || {};
     super(Object.assign({ type: 'enemy', w: def.width || 28, h: def.height || 28 }, o));
-    this.speed  = o.speed  || def.defaultSpeed || 70;
-    this.dir    = 1;
-    this.pl     = o.patrolLeft  || this.x - 80;
-    this.pr     = o.patrolRight || this.x + 80;
-    this.ci     = def.colorInner || '#ff6eb4';
-    this.co     = def.colorOuter || '#aa1155';
-    this.damage = def.damageToPlayer || 1;
+    this.speed     = o.speed || def.defaultSpeed || 70;
+    this.dir       = 1;
+    this.pl        = o.patrolLeft  || this.x - 80;
+    this.pr        = o.patrolRight || this.x + 80;
+    this.ci        = def.colorInner     || '#ff6eb4';
+    this.co        = def.colorOuter     || '#aa1155';
+    this.damage    = def.damageToPlayer || 1;
+    this.spriteKey = def.spriteKey      || 'enemy_patrol'; // matches assets.sprites key in JSON
   }
   update(dt, g) {
     this.x += this.speed * this.dir * dt;
-    if (this.x <= this.pl) { this.x = this.pl; this.dir = 1; }
+    if (this.x <= this.pl) { this.x = this.pl; this.dir =  1; }
     if (this.x >= this.pr) { this.x = this.pr; this.dir = -1; }
     this.vy = Math.min((this.vy || 0) + (CFG.gravity || 960) * dt, CFG.maxFallSpeed || 600);
     this.y += this.vy * dt; moveY(this, g.map);
     if (this.y > g.map.height + 100) this.alive = false;
   }
   draw(ctx, cam) {
-    const sx = Math.round(this.x - cam.x) + 14, sy = Math.round(this.y - cam.y) + 14;
-    ctx.save(); ctx.translate(sx, sy); ctx.scale(this.dir, 1);
+    const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
+    if (drawSprite(ctx, this.spriteKey, null, 0, sx, sy, this.w, this.h, this.dir === -1)) return;
+    // Procedural fallback
+    const cx = sx + 14, cy = sy + 14;
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(this.dir, 1);
     const eg = ctx.createRadialGradient(0, 0, 2, 0, 0, 14);
     eg.addColorStop(0, this.ci); eg.addColorStop(1, this.co);
     ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(5, -2, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(6, -2, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000';  ctx.beginPath(); ctx.arc(6, -2, 2, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(2, -8); ctx.lineTo(9, -5); ctx.stroke();
     ctx.restore();
@@ -311,9 +452,12 @@ class Flag extends Entity {
   update(dt) { this.wave += dt * 2; }
   draw(ctx, cam) {
     const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
+    if (drawSprite(ctx, 'flag', null, 0, sx, sy, this.w, this.h, false)) return;
+    // Procedural fallback
     ctx.fillStyle = '#aaa'; ctx.fillRect(sx + 2, sy, 4, this.h);
     ctx.beginPath(); ctx.moveTo(sx + 6, sy + 4);
-    for (let i = 0; i <= 8; i++) ctx.lineTo(sx + 6 + i * 2.5, sy + 4 + Math.sin(this.wave + i * 0.5) * 4 + i * 3);
+    for (let i = 0; i <= 8; i++)
+      ctx.lineTo(sx + 6 + i * 2.5, sy + 4 + Math.sin(this.wave + i * 0.5) * 4 + i * 3);
     ctx.lineTo(sx + 6, sy + 28); ctx.closePath();
     ctx.fillStyle = '#7fff6e'; ctx.fill();
     ctx.font = '14px serif'; ctx.fillStyle = '#ffe566'; ctx.fillText('★', sx - 1, sy + 2);
@@ -327,11 +471,14 @@ class Particles {
     n = n || 10;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 160;
-      this.list.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80, r: 2 + Math.random() * 4, life: 0.7 + Math.random() * 0.3, color });
+      this.list.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80,
+                       r: 2 + Math.random() * 4, life: 0.7 + Math.random() * 0.3, color });
     }
   }
   update(dt) {
-    this.list = this.list.map(p => ({ ...p, x: p.x + p.vx * dt, y: p.y + p.vy * dt, vy: p.vy + 300 * dt, life: p.life - dt })).filter(p => p.life > 0);
+    this.list = this.list
+      .map(p => ({ ...p, x: p.x + p.vx * dt, y: p.y + p.vy * dt, vy: p.vy + 300 * dt, life: p.life - dt }))
+      .filter(p => p.life > 0);
   }
   draw(ctx, cam) {
     for (const p of this.list) {
@@ -350,18 +497,29 @@ class PlatformerGame extends Emitter {
   constructor() {
     super();
     this.ctx = ctx;
-    this.running = false; this.paused = false; this.debug = false;
+    this.running = false; this.paused = false;
     this.entities  = []; this.particles = new Particles();
     this.camera    = new Camera(); this.map = null;
     this.input     = { left: false, right: false, jump: false, jumpPressed: false };
     this.score     = 0; this.lives = CFG.startingLives || 3;
     this.coins     = 0; this.totalCoins = 0;
-    this._lastTs   = 0; this._fps = []; this._rafId = null; this._stars = null;
+    this._lastTs   = 0; this._rafId = null; this._stars = null;
     this._skyTop   = '#070714'; this._skyBot = '#0e0e2a';
+    this._bgImg    = null;   // loaded Image object, or null
+    this._bgParallax = 0.4;  // how much bg scrolls relative to camera (0 = fixed, 1 = with world)
     this._bindKeys();
   }
   setSky(top, bot) { this._skyTop = top || '#070714'; this._skyBot = bot || '#0e0e2a'; this._stars = null; }
-  loadMap(data, colors) { this.map = new TileMap(data, CFG.tileSize || 32, colors); }
+  setBackground(url, parallax) {
+    this._bgParallax = (parallax != null) ? parallax : 0.4;
+    this._bgImg = null;
+    if (!url) return;
+    const img = new Image();
+    img.onload  = () => { this._bgImg = img; };
+    img.onerror = () => { this._bgImg = null; console.warn('Background image failed to load:', url); };
+    img.src = ASSET_BASE + url;
+  }
+  loadMap(data, colors, tilesetKey) { this.map = new TileMap(data, CFG.tileSize || 32, colors, tilesetKey); }
   addEntity(e) {
     this.entities.push(e);
     if (e.type === 'player') this.player = e;
@@ -377,11 +535,9 @@ class PlatformerGame extends Emitter {
     this._rafId = requestAnimationFrame(t => this._loop(t));
     const dt = Math.min((ts - this._lastTs) / 1000, 0.05);
     this._lastTs = ts;
-    this._fps.push(1 / dt); if (this._fps.length > 30) this._fps.shift();
     if (!this.paused) this._update(dt);
     this._draw();
-    const fps = Math.round(this._fps.reduce((a, b) => a + b) / this._fps.length);
-    this.emit('frame', { fps });
+    this.emit('frame', {});
   }
 
   _update(dt) {
@@ -401,44 +557,69 @@ class PlatformerGame extends Emitter {
     for (const e of this.entities) {
       if (e === p || !e.alive) continue;
       if (p.x + p.w <= e.x || p.x >= e.x + e.w || p.y + p.h <= e.y || p.y >= e.y + e.h) continue;
+
       if (e.type === 'reward' && !e.collected) {
         e.collected = true; e.alive = false;
         this.score += e.points; this.coins++;
         this.particles.burst(e.x + 9, e.y + 9, e.def.particleColor || '#ffd700', e.def.particleCount || 10);
-        this.emit('rewardCollected', { reward: e.def, score: this.score, coins: this.coins });
-        addLog(`${e.def.label} +${e.points} → ${this.score}`, 'good');
+        this.emit('rewardCollected', { score: this.score, coins: this.coins });
       }
+
       if (e.type === 'enemy' && p.invincible <= 0) {
         if (p.vy > 0 && (p.y + p.h) - e.y < 14) {
           e.alive = false; p.vy = -300;
-          const pts = REWARDS.enemyStomp ? REWARDS.enemyStomp.points : 25;
+          const pts = (REWARDS.enemyStomp && REWARDS.enemyStomp.points) || 25;
           this.score += pts;
-          this.particles.burst(e.x + 14, e.y, REWARDS.enemyStomp ? REWARDS.enemyStomp.particleColor : '#ff6eb4');
+          this.particles.burst(e.x + 14, e.y, (REWARDS.enemyStomp && REWARDS.enemyStomp.particleColor) || '#ff6eb4');
           this.emit('enemyKilled', { score: this.score });
-          addLog(`Enemy stomped! +${pts}`, 'good');
         } else {
-          this.lives -= (e.damage || 1); p.invincible = PLAYER_DEF.invincibleDuration || 2;
+          this.lives -= (e.damage || 1);
+          p.invincible = PLAYER_DEF.invincibleDuration || 2;
           this.emit('playerHurt', { lives: this.lives });
-          addLog(`Ouch! Lives: ${this.lives}`, 'warn');
           if (this.lives <= 0) this.emit('playerDied');
         }
       }
-      if (e.type === 'flag') this.emit('levelComplete', { score: this.score, coins: this.coins, total: this.totalCoins });
+
+      if (e.type === 'flag') {
+        this.emit('levelComplete', { score: this.score, coins: this.coins, total: this.totalCoins });
+      }
     }
   }
 
   _draw() {
     const ctx = this.ctx;
+    // Sky gradient — always drawn first as the base layer
     const bg = ctx.createLinearGradient(0, 0, 0, GAME_H);
     bg.addColorStop(0, this._skyTop); bg.addColorStop(1, this._skyBot);
     ctx.fillStyle = bg; ctx.fillRect(0, 0, GAME_W, GAME_H);
-    this._drawStars(ctx);
+    // Background: image with parallax if loaded, otherwise procedural stars
+    if (this._bgImg) {
+      this._drawBgImage(ctx);
+    } else {
+      this._drawStars(ctx);
+    }
     if (!this.map) return;
     this.map.draw(ctx, this.camera);
-    [...this.entities].sort((a, b) => a.y - b.y).forEach(e => { if (e.alive) e.draw(ctx, this.camera, this.debug); });
+    [...this.entities].sort((a, b) => a.y - b.y)
+      .forEach(e => { if (e.alive) e.draw(ctx, this.camera); });
     this.particles.draw(ctx, this.camera);
     this._hud(ctx);
-    if (this.debug) this._dbg(ctx);
+  }
+
+  /* Tile a seamless PNG horizontally with parallax scrolling */
+  _drawBgImage(ctx) {
+    const img = this._bgImg;
+    // Scale image to fill game height
+    const scale  = GAME_H / img.height;
+    const drawW  = Math.ceil(img.width * scale);
+    const drawH  = GAME_H;
+    // Parallax offset: bg moves slower than the world camera
+    const offsetX = (this.camera.x * this._bgParallax) % drawW;
+    // Tile horizontally to cover full width
+    const startX = -((offsetX % drawW) + drawW) % drawW;
+    for (let x = startX; x < GAME_W; x += drawW) {
+      ctx.drawImage(img, x, 0, drawW, drawH);
+    }
   }
 
   _drawStars(ctx) {
@@ -456,27 +637,37 @@ class PlatformerGame extends Emitter {
     }
   }
 
+  /* In-game HUD — drawn on canvas, always visible during play */
   _hud(ctx) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath(); ctx.roundRect(10, 10, 230, 34, 7); ctx.fill();
-    ctx.font = 'bold 12px "Space Mono",monospace';
-    ctx.fillStyle = '#7fff6e'; ctx.fillText(`Score: ${this.score}`, 20, 31);
-    ctx.fillStyle = '#ff6eb4'; ctx.fillText(`♥ ${this.lives}`, 145, 31);
-    ctx.fillStyle = '#ffd700'; ctx.fillText(`● ${this.coins}/${this.totalCoins}`, 180, 31);
+    // Score / lives / items pill — top left
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.roundRect(10, 10, 244, 36, 8); ctx.fill();
+    ctx.font = 'bold 13px "Space Mono",monospace';
+    ctx.fillStyle = '#7fff6e'; ctx.fillText(`Score: ${this.score}`, 20, 33);
+    ctx.fillStyle = '#ff6eb4'; ctx.fillText(`♥ ${this.lives}`,        152, 33);
+    ctx.fillStyle = '#ffd700'; ctx.fillText(`● ${this.coins}/${this.totalCoins}`, 190, 33);
+
+    // Level name — top right
+    const lvl = LEVELS[currentLevelIdx];
+    if (lvl) {
+      const label = `${lvl.id} / ${LEVELS.length}  ${lvl.name}`;
+      ctx.font = '11px "Space Mono",monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath(); ctx.roundRect(GAME_W - tw - 26, 10, tw + 20, 28, 6); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText(label, GAME_W - tw - 16, 29);
+    }
+
+    // Paused banner
     if (this.paused) {
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, GAME_W, GAME_H);
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 30px Syne,sans-serif';
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 32px "Syne",sans-serif';
       ctx.textAlign = 'center'; ctx.fillText('PAUSED', GAME_W / 2, GAME_H / 2);
-      ctx.font = '12px "Space Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText('Press P to resume', GAME_W / 2, GAME_H / 2 + 28); ctx.textAlign = 'left';
+      ctx.font = '12px "Space Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillText('Press P to resume', GAME_W / 2, GAME_H / 2 + 32);
+      ctx.textAlign = 'left';
     }
-  }
-
-  _dbg(ctx) {
-    const ts = this.map.ts;
-    ctx.strokeStyle = 'rgba(255,255,0,0.07)'; ctx.lineWidth = 0.5;
-    for (let x = -(this.camera.x % ts); x < GAME_W; x += ts) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GAME_H); ctx.stroke(); }
-    for (let y = -(this.camera.y % ts); y < GAME_H; y += ts) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GAME_W, y); ctx.stroke(); }
   }
 
   _bindKeys() {
@@ -506,56 +697,54 @@ class PlatformerGame extends Emitter {
 }
 
 /* ═══════════════════════════════════════════════════
-   GAME MANAGER — levels, state, UI
+   GAME MANAGER
    ═══════════════════════════════════════════════════ */
-let game = null;
+let game            = null;
 let currentLevelIdx = 0;
-let levelScores     = [];   // best score per level
-let levelUnlocked   = [true]; // level 0 always unlocked
+let levelScores     = [];
+let levelUnlocked   = [true];
 
 function initFromJSON(data) {
-  CFG        = data.config    || {};
-  REWARDS    = data.rewards   || {};
-  ENEMY_DEFS = data.enemies   || {};
-  PLAYER_DEF = data.player    || {};
-  LEVELS     = data.levels    || [];
+  CFG        = data.config  || {};
+  REWARDS    = data.rewards || {};
+  ENEMY_DEFS = data.enemies || {};
+  PLAYER_DEF = data.player  || {};
+  LEVELS     = data.levels  || [];
+  GAME_TITLE = data.title   || 'PlatformerJS';
 
-  // Init progress arrays
+  /* Debug: log exactly what assets block was received */
+  console.log('[init] assets block received:', JSON.stringify(data.assets, null, 2));
+  console.log('[init] ASSET_BASE =', ASSET_BASE);
+
+  /* Load all sprite and tileset images defined in assets */
+  loadSprites( (data.assets && data.assets.sprites)  || {});
+  loadTilesets((data.assets && data.assets.tilesets) || {});
+
   levelScores   = LEVELS.map(() => 0);
   levelUnlocked = LEVELS.map((_, i) => i === 0);
 
-  buildLevelStrip();
+  /* Set page title and toolbar title from JSON */
+  document.title = GAME_TITLE;
+  document.getElementById('gameTitle').textContent = GAME_TITLE;
+
   showStartOverlay();
-  addLog('Game data loaded — ' + LEVELS.length + ' levels', 'info');
 }
 
-/* ── Build level strip ── */
-function buildLevelStrip() {
-  const strip = document.getElementById('levelStrip');
-  strip.innerHTML = '<span class="lvl-label">Level:</span>';
-  LEVELS.forEach((lvl, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'lvl-btn' + (i === 0 ? ' active' : '') + (!levelUnlocked[i] ? ' locked' : '');
-    btn.id = `lvl-btn-${i}`;
-    btn.textContent = `${lvl.id}. ${lvl.name}`;
-    btn.onclick = () => {
-      if (!levelUnlocked[i]) { addLog(`Level ${lvl.id} locked — complete previous level first`, 'warn'); return; }
-      currentLevelIdx = i;
-      document.getElementById('overlay').classList.add('hidden');
-      startLevel(i);
-    };
-    strip.appendChild(btn);
-  });
-}
-
-function refreshLevelStrip() {
-  LEVELS.forEach((_, i) => {
-    const btn = document.getElementById(`lvl-btn-${i}`);
-    if (!btn) return;
-    btn.className = 'lvl-btn'
-      + (i === currentLevelIdx ? ' active' : '')
-      + (!levelUnlocked[i] ? ' locked' : '');
-  });
+/* ── Level progress HTML — used only inside overlays ── */
+function buildLevelProgressHTML() {
+  return LEVELS.map((lvl, i) => {
+    const done   = levelScores[i] > 0;
+    const active = i === currentLevelIdx;
+    const locked = !levelUnlocked[i];
+    const dotCls = done ? 'done' : active ? 'active' : '';
+    const score  = levelScores[i] > 0 ? levelScores[i] + ' pts' : locked ? '🔒' : '';
+    return `
+      <div class="lp-row">
+        <div class="lp-dot ${dotCls}"></div>
+        <span class="lp-name${locked ? ' locked' : ''}">${lvl.id}. ${lvl.name}</span>
+        <span class="lp-score${score ? '' : ' empty'}">${score}</span>
+      </div>`;
+  }).join('');
 }
 
 /* ── Start a level ── */
@@ -567,173 +756,141 @@ function startLevel(idx) {
 
   game = new PlatformerGame();
   game.setSky(lvl.skyTop, lvl.skyBottom);
-  game.loadMap(lvl.tilemap, lvl.tileColors);
+  game.setBackground(lvl.backgroundImage || null, lvl.backgroundParallax);
+  game.loadMap(lvl.tilemap, lvl.tileColors, lvl.tileset || 'default');
 
-  // Player
   game.addEntity(new Player({ x: lvl.playerStart.x, y: lvl.playerStart.y }));
 
-  // Rewards
   (lvl.rewards || []).forEach(r => {
     const def = REWARDS[r.reward] || REWARDS['coin'];
     game.addEntity(new Reward({ x: r.x, y: r.y, reward: r.reward }, def));
   });
 
-  // Enemies
   (lvl.enemies || []).forEach(en => {
     const def = ENEMY_DEFS[en.enemy] || ENEMY_DEFS['patrol'] || {};
     game.addEntity(new Enemy(en, def));
   });
 
-  // Flag
   if (lvl.flag) game.addEntity(new Flag(lvl.flag));
 
-  // Events
-  game.on('rewardCollected', updateStats);
-  game.on('playerHurt',      updateStats);
-  game.on('playerDied', () => {
-    addLog('☠ Died — restarting level…', 'warn');
-    setTimeout(() => startLevel(currentLevelIdx), 700);
-  });
+  game.on('playerDied', () => setTimeout(() => startLevel(currentLevelIdx), 700));
+
   game.on('levelComplete', d => {
     game.stop();
-    // Bonus for all items collected
     let bonus = 0;
-    if (d.coins >= d.total && d.total > 0) {
+    if (d.coins >= d.total && d.total > 0)
       bonus = (REWARDS.allCoins && REWARDS.allCoins.points) || 50;
-      d.score += bonus;
-    }
     const completeBonus = (REWARDS.levelComplete && REWARDS.levelComplete.points) || 100;
-    d.score += completeBonus;
-    const totalScore = d.score;
+    d.score += bonus + completeBonus;
 
-    // Save best
-    levelScores[currentLevelIdx] = Math.max(levelScores[currentLevelIdx], totalScore);
-    // Unlock next
+    levelScores[currentLevelIdx] = Math.max(levelScores[currentLevelIdx], d.score);
     const nextIdx = currentLevelIdx + 1;
     if (nextIdx < LEVELS.length) levelUnlocked[nextIdx] = true;
 
-    refreshLevelStrip();
-    buildLevelProgress();
-
-    addLog(`★ Level ${LEVELS[currentLevelIdx].id} done! Score: ${totalScore}`, 'good');
-
     showLevelCompleteOverlay(lvl, d, bonus, completeBonus, nextIdx);
   });
-  game.on('resetRequest', () => startLevel(currentLevelIdx));
-  game.on('frame', ({ fps }) => { document.getElementById('st-fps').textContent = fps; });
 
-  refreshLevelStrip();
-  buildEntityList();
-  updateStats();
+  game.on('resetRequest', () => startLevel(currentLevelIdx));
   game.start();
-  addLog(`▶ Level ${lvl.id}: ${lvl.name}`, 'info');
 }
 
 /* ── Overlays ── */
 function showStartOverlay() {
-  const o = document.getElementById('overlay');
-  const lvl = LEVELS[0];
-  o.innerHTML = `
-    <div class="level-badge-overlay">PlatformerJS</div>
-    <h2>Ready to Play?</h2>
-    <p class="overlay-sub">${LEVELS.length} levels · Collect coins &amp; stars · Stomp enemies · Reach the flag!</p>
+  // Build level picker only if more than one level
+  const levelPickerHTML = LEVELS.length > 1 ? `
+    <div class="overlay-levels" id="ovlLevels">
+      ${LEVELS.map((lvl, i) => {
+        const locked = !levelUnlocked[i];
+        const score  = levelScores[i] > 0 ? levelScores[i] + ' pts' : locked ? '🔒' : (lvl.subtitle || '');
+        return `<button class="ovl-lvl-btn${i === currentLevelIdx ? ' active' : ''}${locked ? ' locked' : ''}"
+                        data-idx="${i}">
+                  ${lvl.id}. ${lvl.name}
+                  <span class="lvl-score">${score}</span>
+                </button>`;
+      }).join('')}
+    </div>` : '';
+
+  overlay.innerHTML = `
+    <h2>${GAME_TITLE}</h2>
+    <p class="overlay-sub">
+      ${LEVELS.length} level${LEVELS.length !== 1 ? 's' : ''} ·
+      Collect coins &amp; stars · Stomp enemies · Reach the flag!
+    </p>
     <div class="key-row">
       <div class="key">← → <span>Move</span></div>
       <div class="key">↑ / Space <span>Jump</span></div>
       <div class="key">P <span>Pause</span></div>
     </div>
+    ${levelPickerHTML}
     <div class="overlay-btns">
-      <button class="btn primary" id="ob-start" style="padding:9px 28px;font-size:13px">▶ Start Level 1</button>
+      <button class="btn primary" id="ob-start" style="padding:10px 32px;font-size:14px">▶ Start</button>
     </div>
   `;
-  o.classList.remove('hidden');
-  document.getElementById('ob-start').onclick = () => { o.classList.add('hidden'); startLevel(0); };
+  overlay.classList.remove('hidden');
+
+  // Wire level picker buttons
+  overlay.querySelectorAll('.ovl-lvl-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.idx);
+      if (!levelUnlocked[i]) return;
+      overlay.querySelectorAll('.ovl-lvl-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentLevelIdx = i;
+      document.getElementById('ob-start').textContent = `▶ Play Level ${LEVELS[i].id}`;
+    });
+  });
+
+  document.getElementById('ob-start').onclick = () => {
+    overlay.classList.add('hidden');
+    startLevel(currentLevelIdx);
+  };
 }
 
 function showLevelCompleteOverlay(lvl, d, bonus, completeBonus, nextIdx) {
-  const o = document.getElementById('overlay');
   const hasNext = nextIdx < LEVELS.length;
-  o.innerHTML = `
-    <div class="level-badge-overlay">Level ${lvl.id} Complete!</div>
-    <h2>${lvl.name}</h2>
+  overlay.innerHTML = `
+    <h2>Level ${lvl.id} Complete!</h2>
     <div class="overlay-score">${d.score}</div>
     <div class="overlay-detail">
-      Coins &amp; Stars: ${d.coins}/${d.total}<br>
-      Level Bonus: +${completeBonus}${bonus ? `&nbsp;&nbsp;All Items: +${bonus}` : ''}
+      Items collected: ${d.coins} / ${d.total}
+      &nbsp;·&nbsp; Bonus: +${completeBonus}
+      ${bonus ? `&nbsp;·&nbsp; All items: +${bonus}` : ''}
     </div>
+    <div class="level-progress">${buildLevelProgressHTML()}</div>
     <div class="overlay-btns">
-      <button class="btn danger" id="ob-retry" style="padding:8px 18px;font-size:12px">↺ Retry</button>
-      ${hasNext ? `<button class="btn primary" id="ob-next" style="padding:9px 22px;font-size:13px">Next Level →</button>` : `<button class="btn primary" id="ob-again" style="padding:9px 22px;font-size:13px">▶ Play Again</button>`}
+      <button class="btn danger" id="ob-retry">↺ Retry</button>
+      <button class="btn"        id="ob-menu">☰ Menu</button>
+      ${hasNext
+        ? `<button class="btn primary" id="ob-next">Next Level →</button>`
+        : `<button class="btn primary" id="ob-again">▶ Play Again</button>`}
     </div>
   `;
-  o.classList.remove('hidden');
-  document.getElementById('ob-retry').onclick = () => { o.classList.add('hidden'); startLevel(currentLevelIdx); };
+  overlay.classList.remove('hidden');
+
+  document.getElementById('ob-retry').onclick = () => { overlay.classList.add('hidden'); startLevel(currentLevelIdx); };
+  document.getElementById('ob-menu').onclick  = () => showStartOverlay();
   if (hasNext) {
-    document.getElementById('ob-next').onclick = () => { o.classList.add('hidden'); startLevel(nextIdx); };
+    document.getElementById('ob-next').onclick  = () => { overlay.classList.add('hidden'); startLevel(nextIdx); };
   } else {
-    document.getElementById('ob-again').onclick = () => { o.classList.add('hidden'); startLevel(0); };
+    document.getElementById('ob-again').onclick = () => { overlay.classList.add('hidden'); startLevel(0); };
   }
 }
 
-/* ── Sidebar UI ── */
-function updateStats() {
-  if (!game) return;
-  document.getElementById('st-score').textContent = game.score;
-  document.getElementById('st-lives').textContent = game.lives;
-  document.getElementById('st-coins').textContent = game.coins + '/' + game.totalCoins;
-  const lvl = LEVELS[currentLevelIdx];
-  document.getElementById('st-level').textContent = lvl ? `${lvl.id}/${LEVELS.length}` : '--';
-}
-
-function buildEntityList() {
-  const list = document.getElementById('entityList'); list.innerHTML = '';
-  const colors = { player: '#7fff6e', reward: '#ffd700', enemy: '#ff6eb4', flag: '#6eb4ff' };
-  const counts = {};
-  (game?.entities || []).forEach(e => { counts[e.type] = (counts[e.type] || 0) + 1; });
-  Object.entries(counts).forEach(([type, n]) => {
-    const row = document.createElement('div'); row.className = 'entity-row';
-    row.innerHTML = `<div class="entity-dot" style="background:${colors[type] || '#888'}"></div>
-      <span class="entity-name">${type[0].toUpperCase() + type.slice(1)}</span>
-      <span class="entity-tag">×${n}</span>`;
-    list.appendChild(row);
-  });
-}
-
-function buildLevelProgress() {
-  const wrap = document.getElementById('levelProgress'); if (!wrap) return;
-  wrap.innerHTML = '';
-  LEVELS.forEach((lvl, i) => {
-    const done   = levelScores[i] > 0;
-    const active = i === currentLevelIdx;
-    const locked = !levelUnlocked[i];
-    const row = document.createElement('div'); row.className = 'lp-row';
-    row.innerHTML = `
-      <div class="lp-dot ${done ? 'done' : active ? 'active' : locked ? 'locked' : ''}"></div>
-      <span class="lp-name" style="color:${locked ? 'var(--muted)' : 'var(--text)'}">${lvl.id}. ${lvl.name}</span>
-      <span class="lp-score">${levelScores[i] > 0 ? levelScores[i] + ' pts' : locked ? '🔒' : ''}</span>
-    `;
-    wrap.appendChild(row);
-  });
-}
-
-/* ── Log helper ── */
-function addLog(msg, cls) {
-  const log = document.getElementById('log');
-  const d = document.createElement('div'); d.className = 'log-line ' + (cls || '');
-  const t = new Date().toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  d.textContent = `[${t}] ${msg}`; log.prepend(d);
-  while (log.children.length > 25) log.removeChild(log.lastChild);
-}
-
-/* ── Button wiring ── */
-document.getElementById('btnPlay').onclick  = () => { if (!game || !game.running) startLevel(currentLevelIdx); else if (game.paused) game.pause(); };
+/* ── Toolbar button wiring ── */
+document.getElementById('btnPlay').onclick  = () => {
+  if (!game || !game.running) startLevel(currentLevelIdx);
+  else if (game.paused) game.pause();
+};
 document.getElementById('btnPause').onclick = () => game?.pause();
-document.getElementById('btnReset').onclick = () => { document.getElementById('overlay').classList.add('hidden'); startLevel(currentLevelIdx); };
-document.getElementById('btnDebug').onclick = function () { if (game) { game.debug = !game.debug; this.classList.toggle('active', game.debug); } };
+document.getElementById('btnReset').onclick = () => {
+  overlay.classList.add('hidden');
+  startLevel(currentLevelIdx);
+};
 
 /* ── Touch controls ── */
 function bindBtn(id, dn, up) {
   const el = document.getElementById(id);
+  if (!el) return;
   const on  = e => { e.preventDefault(); el.classList.add('pressed');    dn(); };
   const off = e => { e.preventDefault(); el.classList.remove('pressed'); up(); };
   el.addEventListener('touchstart',  on,  { passive: false });
@@ -749,19 +906,19 @@ bindBtn('tc-up',    () => game?.setJump(true),  () => game?.setJump(false));
 bindBtn('tc-jump',  () => game?.setJump(true),  () => game?.setJump(false));
 
 /* ═══════════════════════════════════════════════════
-   BOOT — fetch game.json then initialise
+   BOOT — fetch data/${gameId}/game.json, assets from assets/${gameId}/
    ═══════════════════════════════════════════════════ */
 fetch(`data/${gameId}/game.json`)
   .then(r => {
-    if (!r.ok) throw new Error('Could not load game.json (' + r.status + ')');
+    if (!r.ok) throw new Error(`Could not load game data (HTTP ${r.status})`);
     return r.json();
   })
-  .then(data => {
-    addLog('game.json loaded', 'good');
-    initFromJSON(data);
-    buildLevelProgress();
-  })
+  .then(data => initFromJSON(data))
   .catch(err => {
-    addLog('ERROR: ' + err.message, 'warn');
+    overlay.innerHTML = `
+      <h2>Oops!</h2>
+      <p class="overlay-sub">Could not load the game.<br>${err.message}</p>
+    `;
+    overlay.classList.remove('hidden');
     console.error(err);
   });
