@@ -206,10 +206,7 @@ class TileMap {
   draw(ctx, cam) {
     const ts  = this.ts;
     const tsd = TILESETS[this.tilesetKey];
-    const img = tsd && tsd.img;           // null until loaded, or if no URL set
-    /* Source tile size in the sheet may differ from the world tile size.
-       We read it from the tileset def; fall back to world ts if not set. */
-    const srcTs = (tsd && tsd.tileSize) || ts;
+    const img = tsd && tsd.img;
 
     const c0 = Math.max(0, Math.floor(cam.x / ts));
     const c1 = Math.min(this.cols - 1, Math.ceil((cam.x + GAME_W) / ts));
@@ -224,9 +221,11 @@ class TileMap {
         const wy = Math.round(r * ts - cam.y);
 
         if (img) {
-          /* Tileset image: tile ID selects the column in a horizontal strip.
-             tileId 1 → column 0 (first tile), tileId 2 → column 1, etc.   */
-          const col = tileId - 1;
+          /* Read one tile from the horizontal strip using tileSize as the source
+             tile dimensions, then scale to the world tile size (ts×ts).
+             tileId 1 → column 0, tileId 2 → column 1, etc.                     */
+          const srcTs = (tsd && tsd.tileSize) || ts;
+          const col   = tileId - 1;
           ctx.drawImage(img, col * srcTs, 0, srcTs, srcTs, wx, wy, ts, ts);
         } else {
           /* Procedural fallback */

@@ -99,7 +99,6 @@ html, body {
   top: 0; left: 0;
   transform-origin: top left;
   display: block;
-  image-rendering: pixelated;
 }
 
 /* ── Overlay ─────────────────────────────────────── */
