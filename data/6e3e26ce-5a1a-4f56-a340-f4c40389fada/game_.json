@@ -44,7 +44,7 @@
         "frameHeight": 30
       },
       "flag": {
-        "url": "palm1.png",
+        "url": "flag.png",
         "frameWidth": 115,
         "frameHeight": 160
       }
@@ -180,7 +180,7 @@
         { "enemy": "patrol", "x": 320, "y": 256, "patrolLeft": 288, "patrolRight": 400 },
         { "enemy": "patrol", "x": 672, "y": 210, "patrolLeft": 640, "patrolRight": 770, "speed": 90 }
       ],
-      "flag": { "x": 890, "y": 353 },
+      "flag": { "x": 840, "y": 220 },
       "tileset": "default"
     },
     {
