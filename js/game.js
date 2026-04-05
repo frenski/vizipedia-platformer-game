@@ -148,9 +148,9 @@ canvas.height = GAME_H;
 overlay.style.width  = GAME_W + 'px';
 overlay.style.height = GAME_H + 'px';
 
-/* Scale canvas + overlay to fill stage via CSS transform only */
+/* Scale canvas + overlay to fill the full window — HUD floats on top */
 function scaleToStage() {
-  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const sw = window.innerWidth, sh = window.innerHeight;
   const scale = Math.min(sw / GAME_W, sh / GAME_H);
   const ox = Math.floor((sw - GAME_W * scale) / 2);
   const oy = Math.floor((sh - GAME_H * scale) / 2);
@@ -160,6 +160,7 @@ function scaleToStage() {
 }
 scaleToStage();
 new ResizeObserver(scaleToStage).observe(stage);
+window.addEventListener('resize', scaleToStage);
 
 /* ═══════════════════════════════════════════════════
    ENGINE CLASSES
@@ -742,6 +743,23 @@ let currentLevelIdx = 0;
 let levelScores     = [];
 let levelUnlocked   = [true];
 
+/* ── Reward sound cache  key → AudioBuffer (null until loaded) ── */
+const REWARD_SOUNDS = {};
+
+function loadRewardSounds(rewardDefs) {
+  Object.entries(rewardDefs || {}).forEach(([key, def]) => {
+    if (!def.sound) return;
+    const url = ASSET_BASE + def.sound;
+    fetch(url)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.arrayBuffer();
+      })
+      .then(buf => Audio.decodeAndStore(key, buf))
+      .catch(() => console.warn(`[audio] reward sound "${key}" failed: ${url}`));
+  });
+}
+
 function initFromJSON(data) {
   CFG        = data.config  || {};
   REWARDS    = data.rewards || {};
@@ -757,6 +775,7 @@ function initFromJSON(data) {
   /* Load all sprite and tileset images defined in assets */
   loadSprites( (data.assets && data.assets.sprites)  || {});
   loadTilesets((data.assets && data.assets.tilesets) || {});
+  loadRewardSounds(data.rewards || {});
 
   levelScores   = LEVELS.map(() => 0);
   levelUnlocked = LEVELS.map((_, i) => i === 0);
@@ -1042,6 +1061,17 @@ const Audio = (() => {
     src.start(start); src.stop(start + dur + 0.01);
   }
 
+  // ── Buffer playback (for external audio files) ─────────────
+  function _playBuffer(buffer) {
+    if (!ctx || !buffer) return;
+    const src = ctx.createBufferSource();
+    const g   = ctx.createGain();
+    src.buffer = buffer;
+    g.gain.value = 1.0;
+    src.connect(g); g.connect(sfxGain);
+    src.start(ctx.currentTime);
+  }
+
   // ── Sound effects ────────────────────────────────────────────
   const SFX = {
     jump() {
@@ -1128,6 +1158,12 @@ const Audio = (() => {
     },
 
     reward(type) {
+      // If an external sound buffer is loaded for this reward type, play it
+      if (REWARD_SOUNDS[type]) {
+        _playBuffer(REWARD_SOUNDS[type]);
+        return;
+      }
+      // Fallback to synthesised sfx
       if (type === 'star' || type === 'helping_hand' || type === 'photo') SFX.star();
       else SFX.coin();
     }
@@ -1239,6 +1275,13 @@ const Audio = (() => {
         masterGain.gain.setTargetAtTime(0.7, ctx.currentTime, 0.1);
         _startMusic();
       }
+    },
+    decodeAndStore(key, arrayBuffer) {
+      // Called after fetch — decodes and stores the AudioBuffer
+      _init();  // ensure ctx exists
+      ctx.decodeAudioData(arrayBuffer)
+        .then(buf => { REWARD_SOUNDS[key] = buf; console.log(`[audio] reward sound "${key}" ready`); })
+        .catch(e  => console.warn(`[audio] decode failed for "${key}":`, e));
     },
     resumeContext() {
       // Must be called from a user gesture

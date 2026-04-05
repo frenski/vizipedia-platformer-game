@@ -95,7 +95,8 @@
       "floatAmplitude": 4,
       "floatSpeed": 3,
       "particleColor": "#ff6b8a",
-      "particleCount": 10
+      "particleCount": 10,
+      "sound": "audio/love.mp3"
     },
     "star": {
       "type": "star",
@@ -106,7 +107,8 @@
       "floatAmplitude": 4,
       "floatSpeed": 3.5,
       "particleColor": "#ffffff",
-      "particleCount": 10
+      "particleCount": 10,
+      "sound": "audio/fun.mp3"
     },
     "food": {
       "type": "food",
@@ -117,7 +119,8 @@
       "floatAmplitude": 5,
       "floatSpeed": 2.5,
       "particleColor": "#ffaa44",
-      "particleCount": 12
+      "particleCount": 12,
+      "sound": "audio/food.mp3"
     },
     "helping_hand": {
       "type": "helping_hand",
@@ -128,7 +131,20 @@
       "floatAmplitude": 4,
       "floatSpeed": 2,
       "particleColor": "#44ffaa",
-      "particleCount": 14
+      "particleCount": 14,
+      "sound": "audio/helping.mp3"
+    },
+    "photo": {
+      "type": "photo",
+      "label": "Helping Hand",
+      "points": 40,
+      "color": "#44ffaa",
+      "glowColor": "rgba(68,255,170,0.25)",
+      "floatAmplitude": 4,
+      "floatSpeed": 2,
+      "particleColor": "#44ffaa",
+      "particleCount": 14,
+      "sound": "audio/family.mp3"
     },
     "enemyStomp": {
       "label": "Enemy Stomp",

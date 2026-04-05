@@ -211,13 +211,9 @@ html, body {
    ══════════════════════════════════════════════════ */
 #stage {
   position: fixed;
-  top: var(--toolbar);
-  left: 0; right: 0; bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;  /* full screen — HUD floats on top */
   background: var(--sky);
   overflow: hidden;
-}
-@media (max-width: 800px) {
-  #stage { bottom: var(--touch); }
 }
 
 #gameCanvas {
@@ -404,7 +400,7 @@ html, body {
   background: linear-gradient(0deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 100%);
   z-index: 20;
 }
-@media (max-width: 800px) { #touch { display: flex; } }
+@media (pointer: coarse), (max-width: 800px) { #touch { display: flex; } }
 
 .dpad {
   display: flex;
