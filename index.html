@@ -3,22 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Loading…</title><!-- Updated by JS from game.json -->
+  <title>Loading…</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-  <!-- Toolbar: title (from JSON) + Play/Pause/Reset -->
+  <!-- ── Top HUD bar ───────────────────────────────────── -->
   <div id="toolbar">
-    <span id="gameTitle">Loading…</span>
-    <div class="toolbar-btns">
-      <button class="tbtn primary" id="btnPlay">▶ Play</button>
-      <button class="tbtn"         id="btnPause">⏸ Pause</button>
-      <button class="tbtn danger"  id="btnReset">↺ Reset</button>
+
+    <!-- Pause button -->
+    <button class="hud-circle-btn" id="btnPause" title="Pause">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="1" width="4" height="14" rx="2" fill="currentColor"/>
+        <rect x="10" y="1" width="4" height="14" rx="2" fill="currentColor"/>
+      </svg>
+    </button>
+
+    <!-- Score pill with stars -->
+    <div class="hud-pill" id="hudScore">
+      <div class="hud-stars">
+        <span class="star s1">★</span><span class="star s2">★</span><span class="star s3">★</span>
+      </div>
+      <div class="hud-score-label">SCORE: <span id="hudScoreVal">0</span></div>
     </div>
+
+    <!-- Title banner (centre) -->
+    <div class="hud-centre">
+      <div class="hud-title-banner">
+        <span id="gameTitle">Loading…</span>
+      </div>
+      <div class="hud-lives" id="hudLives">
+        <span class="heart full"></span>
+        <span class="heart full"></span>
+        <span class="heart empty"></span>
+      </div>
+    </div>
+
+    <!-- Timer pill -->
+    <div class="hud-pill hud-timer">
+      <span id="hudTimer">00:00</span>
+    </div>
+
+    <!-- Music button -->
+    <button class="hud-circle-btn" id="btnMusic" title="Music">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M6 12V4L14 2.5v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="4.5" cy="12" r="2" fill="currentColor"/>
+        <circle cx="12.5" cy="10.5" r="2" fill="currentColor"/>
+      </svg>
+    </button>
+
   </div>
 
-  <!-- Game canvas — fills all remaining height -->
+  <!-- ── Game stage ─────────────────────────────────────── -->
   <div id="stage">
     <canvas id="gameCanvas"></canvas>
     <div id="overlay">
@@ -26,14 +66,16 @@
     </div>
   </div>
 
-  <!-- Touch controls — shown only on mobile -->
+  <!-- ── Touch controls ────────────────────────────────── -->
   <div id="touch">
     <div class="dpad">
-      <div class="dpad-btn" id="tc-left">◀</div>
-      <div class="dpad-btn" id="tc-up">▲</div>
-      <div class="dpad-btn" id="tc-right">▶</div>
+      <button class="dpad-btn" id="tc-left">◀</button>
+      <button class="dpad-btn" id="tc-right">▶</button>
     </div>
-    <div class="jump-btn" id="tc-jump">⬆</div>
+    <button class="jump-btn" id="tc-jump">
+      <span class="jump-icon">🏃</span>
+      <span class="jump-label">JUMP</span>
+    </button>
   </div>
 
   <script src="js/game.js"></script>

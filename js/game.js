@@ -605,7 +605,7 @@ class PlatformerGame extends Emitter {
         e.collected = true; e.alive = false;
         this.score += e.points; this.coins++;
         this.particles.burst(e.x + 9, e.y + 9, e.def.particleColor || '#ffd700', e.def.particleCount || 10);
-        this.emit('rewardCollected', { score: this.score, coins: this.coins });
+        this.emit('rewardCollected', { score: this.score, coins: this.coins, rewardType: e.rewardKey });
       }
 
       if (e.type === 'enemy' && p.invincible <= 0) {
@@ -683,33 +683,27 @@ class PlatformerGame extends Emitter {
 
   /* In-game HUD — drawn on canvas, always visible during play */
   _hud(ctx) {
-    // Score / lives / items pill — top left
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath(); ctx.roundRect(10, 10, 244, 36, 8); ctx.fill();
-    ctx.font = 'bold 13px "Space Mono",monospace';
-    ctx.fillStyle = '#7fff6e'; ctx.fillText(`Score: ${this.score}`, 20, 33);
-    ctx.fillStyle = '#ff6eb4'; ctx.fillText(`♥ ${this.lives}`,        152, 33);
-    ctx.fillStyle = '#ffd700'; ctx.fillText(`● ${this.coins}/${this.totalCoins}`, 190, 33);
-
-    // Level name — top right
-    const lvl = LEVELS[currentLevelIdx];
-    if (lvl) {
-      const label = `${lvl.id} / ${LEVELS.length}  ${lvl.name}`;
-      ctx.font = '11px "Space Mono",monospace';
-      const tw = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.beginPath(); ctx.roundRect(GAME_W - tw - 26, 10, tw + 20, 28, 6); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText(label, GAME_W - tw - 16, 29);
-    }
+    // Coin counter — bottom left pill (score/lives now live in DOM toolbar)
+    const label = `${this.coins} / ${this.totalCoins}  items`;
+    ctx.font = 'bold 12px "Nunito",sans-serif';
+    const tw = ctx.measureText(label).width;
+    const px = 12, py = GAME_H - 14, pw = tw + 20, ph = 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.roundRect(px, py - ph + 4, pw, ph, 10); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(label, px + 10, py - 1);
 
     // Paused banner
     if (this.paused) {
-      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, GAME_W, GAME_H);
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 32px "Syne",sans-serif';
-      ctx.textAlign = 'center'; ctx.fillText('PAUSED', GAME_W / 2, GAME_H / 2);
-      ctx.font = '12px "Space Mono",monospace'; ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fillText('Press P to resume', GAME_W / 2, GAME_H / 2 + 32);
+      ctx.fillStyle = 'rgba(20,50,120,0.72)';
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+      ctx.font = 'bold 40px "Fredoka One",cursive';
+      ctx.fillStyle = '#f5a623';
+      ctx.textAlign = 'center';
+      ctx.fillText('PAUSED', GAME_W / 2, GAME_H / 2 - 8);
+      ctx.font = '14px "Nunito",sans-serif';
+      ctx.fillStyle = 'rgba(255,248,238,0.6)';
+      ctx.fillText('Press P to resume', GAME_W / 2, GAME_H / 2 + 26);
       ctx.textAlign = 'left';
     }
   }
@@ -793,6 +787,7 @@ function buildLevelProgressHTML() {
 
 /* ── Start a level ── */
 function startLevel(idx) {
+  _hudTimerSecs = 0;
   if (game) game.stop();
   currentLevelIdx = idx;
   const lvl = LEVELS[idx];
@@ -817,7 +812,11 @@ function startLevel(idx) {
 
   if (lvl.flag) game.addEntity(new Flag(lvl.flag));
 
-  game.on('playerDied', () => setTimeout(() => startLevel(currentLevelIdx), 700));
+  game.on('jump',             ()  => Audio.play('jump'));
+  game.on('rewardCollected',  (d) => Audio.play('reward', d && d.rewardType || 'coin'));
+  game.on('enemyKilled',      ()  => Audio.play('enemyKill'));
+  game.on('playerHurt',       ()  => Audio.play('hurt'));
+  game.on('playerDied',       ()  => { Audio.play('die'); setTimeout(() => startLevel(currentLevelIdx), 700); });
 
   game.on('levelComplete', d => {
     game.stop();
@@ -831,11 +830,14 @@ function startLevel(idx) {
     const nextIdx = currentLevelIdx + 1;
     if (nextIdx < LEVELS.length) levelUnlocked[nextIdx] = true;
 
+    Audio.play('levelComplete');
     showLevelCompleteOverlay(lvl, d, bonus, completeBonus, nextIdx);
   });
 
   game.on('resetRequest', () => startLevel(currentLevelIdx));
   game.start();
+  game.on('frame', () => _hudTick(Math.min((performance.now() - (_hudLastTs || performance.now())) / 1000, 0.05)));
+  game.on('frame', () => { _hudLastTs = performance.now(); });
 }
 
 /* ── Overlays ── */
@@ -921,15 +923,52 @@ function showLevelCompleteOverlay(lvl, d, bonus, completeBonus, nextIdx) {
 }
 
 /* ── Toolbar button wiring ── */
-document.getElementById('btnPlay').onclick  = () => {
-  if (!game || !game.running) startLevel(currentLevelIdx);
-  else if (game.paused) game.pause();
+document.getElementById('btnPause').onclick = () => {
+  if (game && game.running) game.pause();
+  else startLevel(currentLevelIdx);
 };
-document.getElementById('btnPause').onclick = () => game?.pause();
-document.getElementById('btnReset').onclick = () => {
-  overlay.classList.add('hidden');
-  startLevel(currentLevelIdx);
+
+let musicMuted = false;
+const musicBtn = document.getElementById('btnMusic');
+if (musicBtn) musicBtn.onclick = () => {
+  musicMuted = !musicMuted;
+  musicBtn.style.opacity = musicMuted ? '0.45' : '1';
+  Audio.setMuted(musicMuted);
 };
+
+/* ── HUD DOM updaters (called each frame) ── */
+let _hudTimerSecs = 0;
+let _hudLastTs = 0;
+function _hudTick(dt) {
+  if (!game || game.paused) return;
+  _hudTimerSecs += dt;
+  const sv = document.getElementById('hudScoreVal');
+  if (sv) sv.textContent = game.score;
+
+  const stars = document.querySelectorAll('.hud-stars .star');
+  const maxPts = Math.max((game.totalCoins || 1) * 10 + 100, 1);
+  const pct = Math.min(game.score / maxPts, 1);
+  stars.forEach((s, i) => s.classList.toggle('lit', pct > i / stars.length));
+
+  const livesEl = document.getElementById('hudLives');
+  if (livesEl) {
+    const total = CFG.startingLives || 3;
+    livesEl.innerHTML = '';
+    for (let i = 0; i < total; i++) {
+      const h = document.createElement('span');
+      h.className = 'heart ' + (i < game.lives ? 'full' : 'empty');
+      h.textContent = '\u2665';
+      livesEl.appendChild(h);
+    }
+  }
+
+  const timerEl = document.getElementById('hudTimer');
+  if (timerEl) {
+    const m = Math.floor(_hudTimerSecs / 60).toString().padStart(2,'0');
+    const s = Math.floor(_hudTimerSecs % 60).toString().padStart(2,'0');
+    timerEl.textContent = m + ':' + s;
+  }
+}
 
 /* ── Touch controls ── */
 function bindBtn(id, dn, up) {
@@ -949,9 +988,273 @@ bindBtn('tc-right', () => game?.setRight(true), () => game?.setRight(false));
 bindBtn('tc-up',    () => game?.setJump(true),  () => game?.setJump(false));
 bindBtn('tc-jump',  () => game?.setJump(true),  () => game?.setJump(false));
 
+
+/* ═══════════════════════════════════════════════════════════════
+   AUDIO ENGINE
+   All sounds synthesised via Web Audio API — no audio files needed.
+   Background music is a procedural looping melody.
+   ═══════════════════════════════════════════════════════════════ */
+const Audio = (() => {
+  let ctx = null;
+  let masterGain = null;
+  let musicGain  = null;
+  let sfxGain    = null;
+  let musicNodes = [];  // currently playing music oscillators
+  let musicTimer = null;
+  let _muted = false;
+  let _started = false;
+
+  function _init() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ctx.createGain(); masterGain.gain.value = 0.7;
+    masterGain.connect(ctx.destination);
+    musicGain = ctx.createGain(); musicGain.gain.value = 0.22;
+    musicGain.connect(masterGain);
+    sfxGain   = ctx.createGain(); sfxGain.gain.value = 1.0;
+    sfxGain.connect(masterGain);
+  }
+
+  // ── Low-level synth helpers ──────────────────────────────────
+  function _osc(freq, type, start, dur, gainVal, dest) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(gainVal, start);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g); g.connect(dest);
+    o.start(start); o.stop(start + dur + 0.01);
+    return o;
+  }
+
+  function _noise(start, dur, gainVal, dest) {
+    const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    const g   = ctx.createGain();
+    const flt = ctx.createBiquadFilter();
+    flt.type = 'bandpass'; flt.frequency.value = 800; flt.Q.value = 1.5;
+    src.buffer = buf;
+    g.gain.setValueAtTime(gainVal, start);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    src.connect(flt); flt.connect(g); g.connect(dest);
+    src.start(start); src.stop(start + dur + 0.01);
+  }
+
+  // ── Sound effects ────────────────────────────────────────────
+  const SFX = {
+    jump() {
+      _init();
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(220, t);
+      o.frequency.exponentialRampToValueAtTime(520, t + 0.12);
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g); g.connect(sfxGain);
+      o.start(t); o.stop(t + 0.2);
+    },
+
+    land() {
+      _init();
+      const t = ctx.currentTime;
+      _noise(t, 0.08, 0.35, sfxGain);
+      _osc(90, 'sine', t, 0.1, 0.4, sfxGain);
+    },
+
+    coin() {
+      _init();
+      const t = ctx.currentTime;
+      // Two-note chime: base note then a fifth up
+      _osc(880, 'triangle', t,       0.15, 0.35, sfxGain);
+      _osc(1320,'triangle', t + 0.07, 0.18, 0.3,  sfxGain);
+    },
+
+    star() {
+      _init();
+      const t = ctx.currentTime;
+      // Three-note ascending sparkle
+      [880, 1100, 1320, 1760].forEach((f, i) => {
+        _osc(f, 'sine', t + i * 0.055, 0.14, 0.28 - i * 0.04, sfxGain);
+      });
+    },
+
+    enemyKill() {
+      _init();
+      const t = ctx.currentTime;
+      // Descending squash sound
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(400, t);
+      o.frequency.exponentialRampToValueAtTime(60, t + 0.22);
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.connect(g); g.connect(sfxGain);
+      o.start(t); o.stop(t + 0.28);
+      _noise(t, 0.1, 0.25, sfxGain);
+    },
+
+    hurt() {
+      _init();
+      const t = ctx.currentTime;
+      // Alarm buzz
+      [0, 0.08, 0.16].forEach(dt => {
+        _osc(180, 'sawtooth', t + dt, 0.07, 0.45, sfxGain);
+      });
+      _noise(t, 0.2, 0.3, sfxGain);
+    },
+
+    die() {
+      _init();
+      const t = ctx.currentTime;
+      // Descending wah-wah
+      [500, 400, 300, 200, 130].forEach((f, i) => {
+        _osc(f, 'sawtooth', t + i * 0.09, 0.1, 0.3, sfxGain);
+      });
+    },
+
+    levelComplete() {
+      _init();
+      const t = ctx.currentTime;
+      // Triumphant fanfare arpeggio
+      const notes = [523, 659, 784, 1047, 784, 1047, 1568];
+      notes.forEach((f, i) => {
+        _osc(f, 'triangle', t + i * 0.1, 0.25, 0.35, sfxGain);
+      });
+    },
+
+    reward(type) {
+      if (type === 'star' || type === 'helping_hand' || type === 'photo') SFX.star();
+      else SFX.coin();
+    }
+  };
+
+  // ── Background music ─────────────────────────────────────────
+  // Pentatonic scale loop — Arabian-flavoured using D minor pentatonic
+  // with an occasional augmented 2nd for that desert feel
+  const SCALE = [294, 330, 370, 440, 494, 587, 660, 740, 880]; // D Phrygian-ish
+  const MELODY = [
+    // [scale_index, duration_beats, volume]
+    [4,1,0.7],[2,0.5,0.5],[3,0.5,0.55],[4,1,0.65],[5,0.5,0.5],
+    [6,1,0.7],[5,0.5,0.5],[4,1,0.6],[2,1,0.55],
+    [0,0.5,0.4],[1,0.5,0.45],[2,1,0.6],[4,1.5,0.65],
+    [5,0.5,0.5],[6,0.5,0.55],[8,1,0.7],[6,0.5,0.55],[5,1,0.6],
+    [4,0.5,0.5],[3,0.5,0.45],[2,1,0.55],[0,2,0.4],
+  ];
+  const BASS = [
+    [294,2,0.4],[220,2,0.35],[262,2,0.4],[294,2,0.45],
+  ];
+  const BPM = 92;
+  const BEAT = 60 / BPM;
+
+  function _scheduleMelody(startT) {
+    let t = startT;
+    const nodes = [];
+
+    // Melody line
+    MELODY.forEach(([si, dur, vol]) => {
+      const freq = SCALE[si % SCALE.length];
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol * 0.18, t + 0.02);
+      g.gain.setValueAtTime(vol * 0.18, t + dur * BEAT - 0.06);
+      g.gain.linearRampToValueAtTime(0, t + dur * BEAT);
+      o.connect(g); g.connect(musicGain);
+      o.start(t); o.stop(t + dur * BEAT + 0.01);
+      nodes.push(o, g);
+      t += dur * BEAT;
+    });
+
+    // Bass line (lower octave, runs alongside melody)
+    let bt = startT;
+    BASS.forEach(([freq, dur, vol]) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq * 0.5;
+      g.gain.setValueAtTime(vol * 0.2, bt);
+      g.gain.exponentialRampToValueAtTime(0.0001, bt + dur * BEAT);
+      o.connect(g); g.connect(musicGain);
+      o.start(bt); o.stop(bt + dur * BEAT + 0.01);
+      nodes.push(o, g);
+      bt += dur * BEAT;
+    });
+
+    const totalDur = MELODY.reduce((s,[,d])=>s+d,0) * BEAT;
+    return { nodes, totalDur, endT: startT + totalDur };
+  }
+
+  function _startMusic() {
+    if (!ctx || musicNodes.length > 0) return;
+    const startT = ctx.currentTime + 0.1;
+    const first = _scheduleMelody(startT);
+    musicNodes = first.nodes;
+
+    // Loop: schedule next phrase 0.2s before current ends
+    function loop(endT) {
+      musicTimer = setTimeout(() => {
+        if (_muted || !ctx) return;
+        const next = _scheduleMelody(endT - 0.05);
+        musicNodes = next.nodes;
+        loop(next.endT);
+      }, (endT - ctx.currentTime - 0.3) * 1000);
+    }
+    loop(first.endT);
+  }
+
+  function _stopMusic() {
+    if (musicTimer) clearTimeout(musicTimer);
+    musicTimer = null;
+    musicNodes.forEach(n => { try { n.stop && n.stop(); } catch(e){} });
+    musicNodes = [];
+  }
+
+  // ── Public API ───────────────────────────────────────────────
+  return {
+    init() {
+      if (_started) return;
+      _started = true;
+      _init();
+      _startMusic();
+    },
+    play(name, ...args) {
+      if (_muted) return;
+      if (!_started) this.init();
+      if (SFX[name]) SFX[name](...args);
+    },
+    setMuted(v) {
+      _muted = v;
+      if (!ctx) return;
+      if (v) {
+        _stopMusic();
+        masterGain.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+      } else {
+        masterGain.gain.setTargetAtTime(0.7, ctx.currentTime, 0.1);
+        _startMusic();
+      }
+    },
+    resumeContext() {
+      // Must be called from a user gesture
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+    }
+  };
+})();
+
 /* ═══════════════════════════════════════════════════
    BOOT — fetch data/${gameId}/game.json, assets from assets/${gameId}/
    ═══════════════════════════════════════════════════ */
+// Start audio on first user interaction (required by browsers)
+['click','keydown','touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => Audio.init(), { once: true })
+);
+
 fetch(`data/${gameId}/game.json`)
   .then(r => {
     if (!r.ok) throw new Error(`Could not load game data (HTTP ${r.status})`);
