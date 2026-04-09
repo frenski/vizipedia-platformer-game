@@ -879,7 +879,7 @@ function showStartOverlay() {
     <h2>${GAME_TITLE}</h2>
     <p class="overlay-sub">
       ${LEVELS.length} level${LEVELS.length !== 1 ? 's' : ''} ·
-      Collect coins &amp; stars · Stomp enemies · Reach the flag!
+      Collect rewards · Stomp enemies · Reach the flag!
     </p>
     <div class="key-row">
       <div class="key">← → <span>Move</span></div>
@@ -976,7 +976,7 @@ function _hudTick(dt) {
     for (let i = 0; i < total; i++) {
       const h = document.createElement('span');
       h.className = 'heart ' + (i < game.lives ? 'full' : 'empty');
-      h.textContent = '\u2665';
+      h.textContent = '';
       livesEl.appendChild(h);
     }
   }
