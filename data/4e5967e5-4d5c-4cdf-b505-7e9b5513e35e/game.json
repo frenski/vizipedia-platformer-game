@@ -27,9 +27,11 @@
         }
       },
       "enemy_patrol": {
-        "url": null,
-        "frameWidth": 28,
-        "frameHeight": 28
+        "url": "wolf1.png",
+        "frameWidth": 128,
+        "frameHeight": 128,
+        "displayWidth": 32,
+        "displayHeight": 32
       },
       "flag": {
         "url": "flag.png",

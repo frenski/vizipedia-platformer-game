@@ -39,10 +39,10 @@ function loadSprites(spriteDefs) {
   Object.entries(spriteDefs || {}).forEach(([key, def]) => {
     SPRITES[key] = {
       img:           null,
-      frameWidth:    def.frameWidth    || null,  // source column width in spritesheet
-      frameHeight:   def.frameHeight   || null,  // source row height in spritesheet
-      displayWidth:  def.displayWidth  || null,  // drawn pixel width  (falls back to frameWidth)
-      displayHeight: def.displayHeight || null,  // drawn pixel height (falls back to frameHeight)
+      frameWidth:    def.frameWidth    || null,
+      frameHeight:   def.frameHeight   || null,
+      displayWidth:  def.displayWidth  || null,
+      displayHeight: def.displayHeight || null,
       frames:        def.frames        || {}
     };
     if (!def.url) {
@@ -52,7 +52,14 @@ function loadSprites(spriteDefs) {
     const fullUrl = ASSET_BASE + def.url;
     console.log(`[sprites] "${key}" → loading ${fullUrl}`);
     const img = new Image();
-    img.onload  = () => { SPRITES[key].img = img; console.log(`[sprites] "${key}" loaded ✓ (${img.width}×${img.height})`); };
+    img.onload  = () => {
+      SPRITES[key].img = img;
+      /* If no display size was set, default to the image's natural size
+         so the sprite always renders at full resolution, not 28×28 */
+      if (!SPRITES[key].displayWidth)  SPRITES[key].displayWidth  = def.frameWidth  || img.width;
+      if (!SPRITES[key].displayHeight) SPRITES[key].displayHeight = def.frameHeight || img.height;
+      console.log(`[sprites] "${key}" loaded ✓ (${img.width}×${img.height}, display ${SPRITES[key].displayWidth}×${SPRITES[key].displayHeight})`);
+    };
     img.onerror = () => { console.error(`[sprites] "${key}" FAILED to load: ${fullUrl}`); };
     img.src = fullUrl;
   });
@@ -86,9 +93,10 @@ function drawSprite(ctx, key, state, frameIdx, dx, dy, dw, dh, flipX) {
   const destH = sp.displayHeight || sp.frameHeight || imgH;
 
   /* Decide source rect.
-     A spritesheet is indicated by ANY frames definition in the JSON.
-     A plain single image has no frames defined at all.                */
-  const isSheet = sp.frames && Object.keys(sp.frames).length > 0;
+     A spritesheet requires BOTH a non-empty frames definition AND a frameWidth.
+     A plain single image (no frames, or empty frames {}) always uses the full image. */
+  const hasFrames = sp.frames && Object.keys(sp.frames).length > 0;
+  const isSheet   = hasFrames && !!sp.frameWidth;
 
   let srcX = 0;
   let srcW = imgW; // default: full image
@@ -473,7 +481,6 @@ class Enemy extends Entity {
   }
   draw(ctx, cam) {
     const sx = Math.round(this.x - cam.x), sy = Math.round(this.y - cam.y);
-    const esp = SPRITES[this.spriteKey];
     if (drawSprite(ctx, this.spriteKey, null, 0, sx, sy, 0, 0, this.dir === -1)) return;
     // Procedural fallback
     const cx = sx + 14, cy = sy + 14;
@@ -869,26 +876,32 @@ function showStartOverlay() {
         const score  = levelScores[i] > 0 ? levelScores[i] + ' pts' : locked ? '🔒' : (lvl.subtitle || '');
         return `<button class="ovl-lvl-btn${i === currentLevelIdx ? ' active' : ''}${locked ? ' locked' : ''}"
                         data-idx="${i}">
-                  ${lvl.id}. ${lvl.name}
+                  <span>${lvl.id}. ${lvl.name}</span>
                   <span class="lvl-score">${score}</span>
                 </button>`;
       }).join('')}
     </div>` : '';
 
   overlay.innerHTML = `
-    <h2>${GAME_TITLE}</h2>
-    <p class="overlay-sub">
-      ${LEVELS.length} level${LEVELS.length !== 1 ? 's' : ''} ·
-      Collect rewards · Stomp enemies · Reach the flag!
-    </p>
-    <div class="key-row">
-      <div class="key">← → <span>Move</span></div>
-      <div class="key">↑ / Space <span>Jump</span></div>
-      <div class="key">P <span>Pause</span></div>
+    <div class="overlay-header">
+      <h2>${GAME_TITLE}</h2>
+      <p class="overlay-sub">
+        ${LEVELS.length} level${LEVELS.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
+        Collect rewards &nbsp;·&nbsp; Stomp enemies &nbsp;·&nbsp; Reach the flag!
+      </p>
+      <div class="key-row">
+        <div class="key">← → <span>Move</span></div>
+        <div class="key">↑ / Space <span>Jump</span></div>
+        <div class="key">P <span>Pause</span></div>
+      </div>
     </div>
-    ${levelPickerHTML}
-    <div class="overlay-btns">
-      <button class="btn primary" id="ob-start" style="padding:10px 32px;font-size:14px">▶ Start</button>
+    <div class="overlay-body">
+      ${levelPickerHTML}
+    </div>
+    <div class="overlay-footer">
+      <div class="overlay-btns">
+        <button class="btn primary" id="ob-start" style="padding:10px 32px;font-size:14px">▶ Start</button>
+      </div>
     </div>
   `;
   overlay.classList.remove('hidden');
@@ -914,20 +927,26 @@ function showStartOverlay() {
 function showLevelCompleteOverlay(lvl, d, bonus, completeBonus, nextIdx) {
   const hasNext = nextIdx < LEVELS.length;
   overlay.innerHTML = `
-    <h2>Level ${lvl.id} Complete!</h2>
-    <div class="overlay-score">${d.score}</div>
-    <div class="overlay-detail">
-      Items collected: ${d.coins} / ${d.total}
-      &nbsp;·&nbsp; Bonus: +${completeBonus}
-      ${bonus ? `&nbsp;·&nbsp; All items: +${bonus}` : ''}
+    <div class="overlay-header">
+      <h2>Level ${lvl.id} Complete! 🎉</h2>
+      <div class="overlay-score">${d.score}</div>
+      <div class="overlay-detail">
+        Items: ${d.coins} / ${d.total}
+        &nbsp;·&nbsp; Bonus: +${completeBonus}
+        ${bonus ? `&nbsp;·&nbsp; All items: +${bonus}` : ''}
+      </div>
     </div>
-    <div class="level-progress">${buildLevelProgressHTML()}</div>
-    <div class="overlay-btns">
-      <button class="btn danger" id="ob-retry">↺ Retry</button>
-      <button class="btn"        id="ob-menu">☰ Menu</button>
-      ${hasNext
-        ? `<button class="btn primary" id="ob-next">Next Level →</button>`
-        : `<button class="btn primary" id="ob-again">▶ Play Again</button>`}
+    <div class="overlay-body">
+      <div class="level-progress">${buildLevelProgressHTML()}</div>
+    </div>
+    <div class="overlay-footer">
+      <div class="overlay-btns">
+        <button class="btn danger" id="ob-retry">↺ Retry</button>
+        <button class="btn"        id="ob-menu">☰ Menu</button>
+        ${hasNext
+          ? `<button class="btn primary" id="ob-next">Next Level →</button>`
+          : `<button class="btn primary" id="ob-again">▶ Play Again</button>`}
+      </div>
     </div>
   `;
   overlay.classList.remove('hidden');
